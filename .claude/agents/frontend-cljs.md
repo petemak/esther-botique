@@ -1,4 +1,3 @@
-
 ---
 name: frontend-cljs
 description: Builds the UI in ClojureScript with Replicant

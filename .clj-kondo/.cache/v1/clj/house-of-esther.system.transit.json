@@ -1,0 +1,1 @@
+["^ ","~$system",["^ ","~:row",12,"~:col",1,"~:private",true,"~:name","^0","~:ns","~$house-of-esther.system","~:top-ns","^6"],"~$start!",["^ ","^1",14,"^2",1,"~:fixed-arities",["~#set",[0,1]],"^4","^8","^5","^6","^7","^6","~:type","~:fn"],"~$stop!",["^ ","^1",28,"^2",1,"^9",["^:",[0]],"^4","^=","^5","^6","^7","^6","^;","^<"],"~:filename","src/backend/house_of_esther/system.clj"]

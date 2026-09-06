@@ -1,0 +1,20 @@
+/*
+ * Self-hosted brand fonts (design-spec.md §0: Fraunces + Inter, WOFF2, font-display: swap).
+ * The .woff2 files are delivered from the CDN at deploy time — see src/frontend/README.md.
+ * Until they are present the fallback stack in tokens.css (Playfair Display → Georgia for
+ * display, system-ui for UI) renders the pages correctly, just without the exact faces.
+ */
+@font-face {
+  font-family: "Fraunces";
+  src: url("/assets/fonts/fraunces-variable.woff2") format("woff2-variations");
+  font-weight: 300 700;
+  font-display: swap;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("/assets/fonts/inter-variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+  font-style: normal;
+}

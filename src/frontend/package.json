@@ -1,0 +1,28 @@
+{
+  "name": "house-of-esther-frontend",
+  "version": "1.0.0",
+  "description": "House of Esther storefront and admin UI",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "dev": "node tools/serve.js",
+    "lint": "eslint .",
+    "gen": "node tools/gen-pages.js",
+    "serve": "node tools/serve.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "playwright": "^1.63.0"
+  }
+}

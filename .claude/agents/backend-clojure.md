@@ -1,4 +1,3 @@
-
 ---
 name: backend-clojure
 description: Implements the API contract in Clojure. Use after

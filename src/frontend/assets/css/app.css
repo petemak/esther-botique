@@ -1,0 +1,6 @@
+/* Storefront stylesheet bundle. Order matters: tokens → fonts → base → components → storefront. */
+@import "./tokens.css";
+/* @import "./fonts.css"; — re-enable once the brand WOFF2 files ship to the CDN (see README) */
+@import "./base.css";
+@import "./components.css";
+@import "./storefront.css";

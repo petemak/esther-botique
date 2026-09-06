@@ -1,0 +1,16 @@
+# House of Esther — PRODUCTION robots.txt
+# NOTE FOR DEPLOYMENT: on the staging host, replace this whole file with:
+#   User-agent: *
+#   Disallow: /
+# A staging site Google can index is a bug. See src/frontend/README.md.
+
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /account/
+Disallow: /checkout.html
+Disallow: /order-confirmation.html
+Disallow: /subscription.html
+Disallow: /*?*trackingToken=
+
+Sitemap: https://houseofesther.co.ke/sitemap.xml

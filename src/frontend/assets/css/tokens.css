@@ -1,0 +1,64 @@
+/* House of Esther — design tokens (from design-spec.md §0) */
+:root {
+  /* Brand colour */
+  --ink-navy: #1b2a4a;
+  --ink-navy-90: #2a3a5c;
+  --warm-clay: #c56a4e;
+  --warm-clay-dark: #a4482f; /* AA-safe on Bone for text */
+  --bone: #f4eee4;
+  --bone-dark: #e7ded0;
+  --brass: #b08a46;
+  --brass-dark: #8a6a32; /* AA-safe on Bone for small text/icons */
+  --white: #ffffff;
+  --functional-black: #111111;
+
+  --ink-on-bone: var(--ink-navy);
+  --text: #1b2a4a;
+  --text-muted: #4a4a4a;
+  --hairline: rgba(176, 138, 70, 0.4);
+  --focus-ring: #b08a46;
+
+  --ok: #2f6f4f;
+  --warn: #8a5a1a;
+  --err: #a4282a;
+  --info: #2a4a7a;
+
+  /* Type */
+  --font-display: "Fraunces", "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --step--1: clamp(0.83rem, 0.8rem + 0.15vw, 0.9rem);
+  --step-0: clamp(0.95rem, 0.92rem + 0.2vw, 1.02rem);
+  --step-1: clamp(1.12rem, 1.05rem + 0.4vw, 1.3rem);
+  --step-2: clamp(1.35rem, 1.2rem + 0.8vw, 1.7rem);
+  --step-3: clamp(1.7rem, 1.4rem + 1.6vw, 2.4rem);
+  --step-4: clamp(2.1rem, 1.6rem + 2.6vw, 3.2rem);
+
+  /* Space */
+  --space-3xs: 0.25rem;
+  --space-2xs: 0.5rem;
+  --space-xs: 0.75rem;
+  --space-s: 1rem;
+  --space-m: 1.5rem;
+  --space-l: 2rem;
+  --space-xl: 3rem;
+  --space-2xl: 4.5rem;
+
+  --content-max: 1280px;
+  --measure: 68ch;
+
+  --radius: 4px;
+  --radius-lg: 8px;
+
+  --shadow-1: 0 1px 3px rgba(27, 42, 74, 0.08), 0 6px 20px rgba(27, 42, 74, 0.06);
+  --shadow-2: 0 8px 40px rgba(27, 42, 74, 0.18);
+
+  --transition: 180ms ease;
+  --header-h: 3.5rem;
+}
+
+@media (min-width: 48rem) {
+  :root {
+    --header-h: 4.25rem;
+  }
+}

@@ -1,0 +1,272 @@
+/* House of Esther — admin back-office */
+
+.admin-body {
+  background: #eef1f6;
+}
+
+.admin-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 60rem) {
+  .admin-shell {
+    grid-template-columns: 15rem minmax(0, 1fr);
+  }
+}
+
+.admin-sidebar {
+  background: var(--ink-navy);
+  color: var(--bone);
+  padding: var(--space-s);
+}
+.admin-sidebar .brand {
+  color: var(--bone);
+  display: block;
+  margin-bottom: var(--space-m);
+}
+.admin-sidebar nav ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3xs);
+}
+.admin-sidebar a {
+  display: block;
+  padding: var(--space-2xs) var(--space-xs);
+  color: var(--bone);
+  text-decoration: none;
+  border-radius: var(--radius);
+  font-size: var(--step--1);
+}
+.admin-sidebar a:hover,
+.admin-sidebar a[aria-current="page"] {
+  background: rgba(244, 238, 228, 0.14);
+}
+
+.admin-main {
+  padding: var(--space-l);
+  min-width: 0;
+}
+.admin-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-s);
+  margin-bottom: var(--space-l);
+  flex-wrap: wrap;
+}
+.admin-topbar h1 {
+  font-size: var(--step-2);
+}
+
+.stat-grid {
+  display: grid;
+  gap: var(--space-s);
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+.stat {
+  background: var(--white);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-m);
+}
+.stat__value {
+  font-family: var(--font-display);
+  font-size: var(--step-3);
+  color: var(--ink-navy);
+}
+.stat__label {
+  font-size: var(--step--1);
+  color: var(--text-muted);
+}
+.stat--alert {
+  border-color: var(--warm-clay-dark);
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  background: var(--white);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+}
+table.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--step--1);
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: var(--space-2xs) var(--space-s);
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+.admin-table th {
+  background: #f6f4ef;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+}
+.admin-table tbody tr:hover {
+  background: #faf8f4;
+}
+.admin-table img {
+  width: 2.5rem;
+  height: 3rem;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-s);
+  align-items: flex-end;
+  margin-bottom: var(--space-m);
+}
+.admin-filters .field {
+  margin-bottom: 0;
+}
+
+.admin-form-grid {
+  display: grid;
+  gap: var(--space-l);
+  grid-template-columns: minmax(0, 1fr);
+}
+.admin-form-grid > * {
+  min-width: 0;
+}
+@media (min-width: 60rem) {
+  .admin-form-grid {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: start;
+  }
+}
+.admin-section-card {
+  background: var(--white);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-m);
+  margin-bottom: var(--space-m);
+}
+.admin-section-card > h2 {
+  font-size: var(--step-1);
+  margin-bottom: var(--space-s);
+}
+.sticky-savebar {
+  margin-top: var(--space-m);
+  background: var(--white);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-s);
+  display: flex;
+  gap: var(--space-s);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  box-shadow: var(--shadow-1);
+}
+
+/* Only pin it once the layout is two-column and there's room — on a phone a pinned
+   bar fights the form fields for tap targets. */
+@media (min-width: 60rem) {
+  .sticky-savebar {
+    position: sticky;
+    bottom: var(--space-2xs);
+    z-index: 20;
+    box-shadow: var(--shadow-2);
+  }
+}
+
+.variant-table td input {
+  width: 6rem;
+}
+.variant-table td input[type="text"] {
+  width: 9rem;
+}
+
+.uploader-drop {
+  border: 2px dashed var(--brass-dark);
+  border-radius: var(--radius-lg);
+  padding: var(--space-l);
+  text-align: center;
+  background: #faf8f4;
+}
+.uploader-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: var(--space-s);
+  margin-top: var(--space-s);
+}
+.uploader-item {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--space-2xs);
+  background: var(--white);
+}
+.uploader-item img {
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  width: 100%;
+  border-radius: 2px;
+}
+.uploader-item .bytes {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.rich-editor {
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+.rich-editor__toolbar {
+  display: flex;
+  gap: var(--space-3xs);
+  padding: var(--space-3xs);
+  border-bottom: 1px solid var(--hairline);
+}
+.rich-editor__toolbar button {
+  min-width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--hairline);
+  background: var(--bone);
+  border-radius: 2px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.rich-editor__area {
+  padding: var(--space-s);
+  min-height: 9rem;
+}
+.rich-editor__area:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.readonly-panel {
+  background: #f6f4ef;
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--brass-dark);
+  border-radius: var(--radius);
+  padding: var(--space-s);
+  font-size: var(--step--1);
+}
+.readonly-panel dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3xs) var(--space-s);
+}
+.readonly-panel dt {
+  font-weight: 700;
+}
+.readonly-panel dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.row-actions {
+  display: flex;
+  gap: var(--space-3xs);
+}

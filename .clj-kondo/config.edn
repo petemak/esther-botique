@@ -1,0 +1,2 @@
+{:hooks {:analyze-call {house-of-esther.db/with-tx hooks.with-tx/with-tx}}
+ :linters {:unresolved-symbol {:exclude [(house-of-esther.db/with-tx)]}}}

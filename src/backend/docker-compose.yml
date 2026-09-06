@@ -1,0 +1,22 @@
+# Local Postgres for House of Esther development.
+#   docker compose -f src/backend/docker-compose.yml up -d
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: house-of-esther-db
+    environment:
+      POSTGRES_USER: house_of_esther
+      POSTGRES_PASSWORD: house_of_esther
+      POSTGRES_DB: house_of_esther
+    ports:
+      - "5432:5432"
+    volumes:
+      - house_of_esther_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U house_of_esther"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  house_of_esther_pgdata:
