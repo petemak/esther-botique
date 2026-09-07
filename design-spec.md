@@ -90,6 +90,7 @@ block, image gallery.
 36. Orders list
 37. Order detail (fulfilment, payment, tracking, agreement-acceptance record)
 38. Reviews moderation
+38A. Contact messages (read-only inbox — list, detail, mark handled)
 39. Subscribers & broadcasts (new-stock / back-in-stock announcements)
 40. Homepage content editor
 41. Legal documents editor (publish new versions)
@@ -309,7 +310,8 @@ Target: "House of Esther contact / customer service".
 - **Direct channels** — WhatsApp click-to-chat, email, response-time expectation
   ("We reply within one business day").
 - **Boutique / hours** — placeholder until the flagship opens.
-- Dynamic: contact form submit.
+- Dynamic: contact form submit (persisted to `contact_messages` and triaged in the admin
+  Contact messages inbox, page 38A).
 
 ### 18-20. Legal pages (Terms of Sale, Privacy Policy, Returns & Refund Policy)
 - **Document header** — title, "Version {n} — effective {date}", link to previous
@@ -374,7 +376,8 @@ Target: "House of Esther contact / customer service".
 ### 31. Admin dashboard
 - **Today** — new orders count, unpaid pay-on-delivery orders, orders awaiting dispatch.
 - **Needs attention** — low-stock variants (below threshold), out-of-stock published
-  products, reviews pending moderation, contact messages unhandled.
+  products, reviews pending moderation, contact messages unhandled (links to Contact
+  messages, page 38A).
 - **Quick links** — add product, view orders, send a broadcast.
 - Dynamic: admin summary endpoint.
 
@@ -397,7 +400,19 @@ Target: "House of Esther contact / customer service".
 - **SEO** — meta title, meta description, defaults derived from name/description.
 - **Publishing** — Draft / Published / Archived; publish is what makes it visible on the
   storefront and searchable.
-- Dynamic: admin product create/update, image upload, variant update, inventory.
+- **Preview** — a working "Preview" link, available on a product of any status. Opens the
+  storefront PDP in a new tab in preview mode (calls
+  `GET /api/admin/products/{id}/preview` — admin-guarded, `no-store` — which returns the
+  exact public `ProductDetail` shape for draft / published / archived products). Preview
+  mode shows a persistent "Draft — not visible to customers" banner (driven by the
+  response's `previewStatus`) and a mobile / desktop width toggle so Esther can do the
+  phone-width check before publishing.
+- **Publish latency** — published catalog pages are CDN-cached (~2 min `max-age`), so a
+  freshly published or edited product can lag on the public storefront by up to a couple
+  of minutes; Preview and every admin view read live, uncached data, so use Preview to
+  verify.
+- Dynamic: admin product create/update, draft-product preview, image upload, variant
+  update, inventory.
 
 ### 34. Inventory / stock adjustments (admin)
 - Table of variants with current stock; inline quick-edit; "record adjustment" with
@@ -435,6 +450,26 @@ Target: "House of Esther contact / customer service".
   Approve / reject (with reason). Approved reviews appear on the PDP.
 - Dynamic: admin reviews list + moderate.
 
+### 38A. Contact messages (admin) — read-only inbox
+Target: let Esther see and triage the messages sent from the public Contact form
+(page 17). Read-only — there is no in-app reply at launch; she responds by email (or
+WhatsApp) outside the app. This page only tracks what has come in and what has been dealt
+with.
+- **List** — admin table of messages: reference (e.g. MSG-2026-0442), received date,
+  name, topic (Order issue / Return / Product question / Wholesale-press / Other), order
+  number if given, a one-line message excerpt, handled state. Filters: handled /
+  unhandled (defaults to unhandled), topic. Standard admin table + pagination.
+- **Detail** — full message body, sender name, email, phone, topic, linked order number
+  (click through to the admin order detail when one was given), submitted timestamp, and
+  handled state with handledAt / handledBy.
+- **Mark handled** — a single toggle ("Mark handled" / "Reopen"). Marking handled records
+  who and when; it sends nothing to the customer. Page copy states plainly that replies
+  go out by email outside the app at launch.
+- Dynamic: admin contact list (`GET /api/admin/contacts`), detail
+  (`GET /api/admin/contacts/{reference}`), mark handled
+  (`PATCH /api/admin/contacts/{reference}`). The dashboard "contact messages unhandled"
+  count links here.
+
 ### 39. Subscribers & broadcasts (admin)
 - **Subscribers** — list with source (footer, PDP back-in-stock, checkout opt-in),
   status (pending/confirmed/unsubscribed), date. Export.
@@ -470,9 +505,9 @@ Target: "House of Esther contact / customer service".
 | Catalog / inventory | Pages 2-6 (storefront), 32-35 (admin products, inventory, collections) |
 | Payments / checkout | Page 8 (checkout: M-Pesa STK + pay on delivery), 9 (confirmation), 37 (admin payment/refund) |
 | Accounts / auth | Pages 23-29 (customer), 30 (admin sign in); guest checkout on page 8 |
-| Admin / back-office | Pages 30-42 (gated routes in the one build, server-enforced admin role) |
+| Admin / back-office | Pages 30-42 plus 38A (gated routes in the one build, server-enforced admin role) |
 | Search / discovery | Pages 2-5 (facets, sort, collections), search box in global header, type-ahead |
-| Notifications | Triggered from checkout (page 8), admin order transitions (page 37), broadcasts + back-in-stock (page 39); preferences on page 28; confirm/unsub landing page 21 |
+| Notifications | Triggered from checkout (page 8), admin order transitions (page 37), broadcasts + back-in-stock (page 39); preferences on page 28; confirm/unsub landing page 21. Inbound Contact-form messages land in the read-only Contact messages inbox (page 38A) — the dashboard "contact messages unhandled" count links there and replies go out by email |
 | Legal / compliance | Pages 18-20 (versioned docs), 41 (admin editor), footer links, checkout modal links |
 | Customer agreements (partial) | Page 8 "Review & accept agreement" section — required unticked checkbox, recorded server-side as a side effect of `POST /api/orders`; receipt shown on pages 9, 26; proof panel on admin page 37 |
 
@@ -516,7 +551,8 @@ Target: "House of Esther contact / customer service".
 - **Newsletter block** — email + submit + consent line + double-opt-in feedback.
 - **Image gallery** — carousel (mobile) / thumb-column + main + lightbox (desktop).
 - **Admin table** — sortable columns, filters, row actions, bulk actions, pagination
-  (reused across products, orders, inventory, reviews, subscribers, discounts).
+  (reused across products, orders, inventory, reviews, contact messages, subscribers,
+  discounts).
 - **Admin form shell** — section cards, sticky save bar, dirty-state guard.
 - **Rich text editor** — product story, Journal, legal docs.
 - **Image uploader** — drag-drop, reorder, alt text, primary flag, shows re-encoded
@@ -553,12 +589,12 @@ Target: "House of Esther contact / customer service".
 | D23 | Wishlist list / add / remove | Wishlist, PDP | read + write (auth) |
 | D24 | Newsletter / back-in-stock subscribe | Home, footer, PDP | write |
 | D25 | Subscription confirm / unsubscribe | Landing page | write |
-| D26 | Contact form submit | Contact | write |
+| D26 | Contact form submit (persists to `contact_messages`) | Contact | write |
 | D27 | Legal document by type (current + versions) | Legal pages, checkout modal | read (cacheable) |
 | D28 | Journal list + article by slug | Journal | read (cacheable) |
 | A1 | Admin auth | Admin sign in | write |
 | A2 | Admin dashboard summary | Admin dashboard | read |
-| A3 | Admin products CRUD | Products admin | read + write |
+| A3 | Admin products CRUD + draft-product preview | Products admin, Product edit | read + write |
 | A4 | Admin image upload / delete | Product edit | write |
 | A5 | Admin variant + inventory adjustments | Product edit, Inventory | read + write |
 | A6 | Admin categories + collections CRUD | Collections admin | read + write |
@@ -570,6 +606,7 @@ Target: "House of Esther contact / customer service".
 | A12 | Admin home content update | Content editor | read + write |
 | A13 | Admin legal list / publish version | Legal editor | read + write |
 | A14 | Admin discounts CRUD | Discounts admin | read + write |
+| A15 | Admin contact inbox — list, detail, mark handled (read-only; replies by email) | Contact messages admin (page 38A) | read + write |
 
 ---
 

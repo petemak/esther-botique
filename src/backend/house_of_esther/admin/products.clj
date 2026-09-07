@@ -92,6 +92,15 @@
 (defn get-product [{{:keys [id]} :path-params}]
   (db/with-tx [conn] (resp/ok (admin-product conn id))))
 
+(defn preview-product
+  "A3 — the product in the exact storefront ProductDetail shape, for a product of
+   ANY status, plus an additive `previewStatus` field. The public PDP is untouched."
+  [{{:keys [id]} :path-params}]
+  (db/with-tx [conn]
+    (let [p (catalog/product-by-id conn id)]
+      (when-not p (throw (err/not-found "Product not found.")))
+      (resp/ok (assoc (catalog/detail-map conn p) :previewStatus (:status p))))))
+
 ;; --- create / update ------------------------------------------
 
 (def ^:private Money v/Money)
@@ -282,4 +291,5 @@
 (def routes
   [["/products" {:get list-products :post create-product}]
    ["/products/:id" {:get get-product :patch update-product :delete delete-product}]
+   ["/products/:id/preview" {:get preview-product}]
    ["/products/:id/variants/:variantId" {:patch patch-variant}]])

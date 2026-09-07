@@ -59,9 +59,15 @@ function render() {
         el('label', { for: 'p-status', text: 'Status' }),
         el('select', { class: 'select', id: 'p-status' }, ['draft', 'published', 'archived'].map((s) => el('option', { value: s, text: s, selected: model.status === s }))),
       ]),
-      el('p', { class: 'hint', text: 'Publishing makes the product live and indexable. Catalogue pages are CDN-cached for ~2 minutes, so a new publish can take a couple of minutes to appear on the storefront. Admin views are always live.' }),
-      el('button', { class: 'btn btn--secondary btn--block', type: 'button', disabled: true, 'aria-disabled': 'true', text: 'Preview draft (coming soon)' }),
-      el('p', { class: 'hint', text: 'Draft preview is a follow-up. For now, publish to a hidden state and check the storefront.' }),
+      el('button', {
+        class: 'btn btn--secondary btn--block',
+        type: 'button',
+        id: 'preview-btn',
+        text: 'Preview',
+        on: { click: openPreview },
+      }),
+      el('p', { class: 'hint', text: 'Preview opens the storefront PDP in a new tab exactly as customers will see it — for a draft, published or archived product. Preview and every admin view read live, uncached data.' }),
+      el('p', { class: 'hint', text: 'Published catalogue pages are served from the CDN edge with a ~2 minute max-age, so a brand-new publish (or a change to a live one) can take a couple of minutes to appear for everyone. Use Preview to check it immediately.' }),
     ]),
     el('div', { class: 'admin-section-card' }, [
       el('div', { role: 'alert', id: 'p-alert' }),
@@ -77,6 +83,14 @@ function render() {
 
   form.append(mainCol, sideCol);
   content.append(form);
+}
+
+function openPreview() {
+  if (!productId) {
+    toast('Save the product first, then Preview shows the live PDP.', 'info');
+    return;
+  }
+  window.open(`/product.html?preview=${encodeURIComponent(productId)}`, '_blank', 'noopener');
 }
 
 /* ---------- Basics ---------- */
@@ -410,12 +424,18 @@ async function save(intendedStatus) {
       productId = saved.id;
       model = { ...model, ...saved };
       window.history.replaceState({}, '', `/admin/product-edit.html?id=${encodeURIComponent(productId)}`);
+      const hint = document.getElementById('p-savehint');
+      if (hint) hint.textContent = `Editing ${saved.name || body.name}`;
       toast(intendedStatus === 'published' ? 'Product created and published.' : 'Draft saved.', 'success');
     }
-    if (intendedStatus === 'published' && saved) {
+    if (saved) {
       alert.append(el('div', { class: 'alert alert--success' }, [
-        document.createTextNode('Live. It can take ~2 minutes to appear on the CDN-cached storefront. '),
-        el('a', { href: `/product.html?slug=${encodeURIComponent(saved.slug || body.slug)}`, target: '_blank', rel: 'noopener', text: 'Open storefront page ↗' }),
+        document.createTextNode(
+          intendedStatus === 'published'
+            ? 'Live. The CDN-cached storefront can take ~2 minutes to catch up — '
+            : 'Saved as a draft (not visible to customers). '
+        ),
+        el('a', { href: `/product.html?preview=${encodeURIComponent(productId)}`, target: '_blank', rel: 'noopener', text: 'Preview the PDP now ↗' }),
       ]));
     }
   } catch (err) {

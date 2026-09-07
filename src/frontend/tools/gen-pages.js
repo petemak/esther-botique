@@ -63,6 +63,7 @@ const PAGES = [
   ['admin/orders.html', 'admin/orders', { title: `Admin — Orders — ${BRAND}`, admin: true }],
   ['admin/order.html', 'admin/order', { title: `Admin — Order — ${BRAND}`, admin: true }],
   ['admin/reviews.html', 'admin/reviews', { title: `Admin — Reviews — ${BRAND}`, admin: true }],
+  ['admin/contacts.html', 'admin/contacts', { title: `Admin — Contact Messages — ${BRAND}`, admin: true }],
   ['admin/subscribers.html', 'admin/subscribers', { title: `Admin — Subscribers & Broadcasts — ${BRAND}`, admin: true }],
   ['admin/content.html', 'admin/content', { title: `Admin — Homepage Content — ${BRAND}`, admin: true }],
   ['admin/legal.html', 'admin/legal', { title: `Admin — Legal Documents — ${BRAND}`, admin: true }],

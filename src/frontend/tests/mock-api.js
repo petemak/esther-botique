@@ -156,13 +156,20 @@ const LEGAL = {
   privacy: { docType: 'privacy', version: 1, effectiveDate: '2026-01-01', title: 'Privacy Policy', bodyHtml: '<h2>Privacy</h2><p>Mock privacy policy.</p>', previousVersions: [] },
 };
 
+const CONTACTS = [
+  { reference: 'MSG-2026-0442', name: 'Amina W.', email: 'amina@gmail.com', phone: '+254712345123', topic: 'return', orderNumber: 'HE-2026-04871', message: 'My delivery ETA passed — any update? I also want to return the Orin Linen Dress, it did not fit.', handled: false, handledAt: null, handledBy: null, createdAt: '2026-09-13T08:04:00Z' },
+  { reference: 'MSG-2026-0441', name: 'Brian K.', email: 'brian@example.com', phone: '+254700111222', topic: 'product_question', orderNumber: null, message: 'Is the Harlan crossbody strap adjustable?', handled: true, handledAt: '2026-09-12T10:00:00Z', handledBy: 'usr_admin1', createdAt: '2026-09-12T09:30:00Z' },
+];
+
 /** Attach to a Playwright page. opts.admin=true makes admin/me succeed. */
 export async function installMockApi(page, opts = {}) {
   const state = createMockState();
   state.admin = !!opts.admin;
+  state.contacts = CONTACTS.map((c) => ({ ...c }));
   state.user = opts.user || null;
 
-  await page.route('**/api/**', async (route) => {
+  // Route on the context so popups (e.g. the admin "Preview" new tab) share the mock + state.
+  await page.context().route('**/api/**', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
     const path = url.pathname.replace(/^\/api/, '');
@@ -423,6 +430,11 @@ export async function installMockApi(page, opts = {}) {
     if (path === '/admin/auth/logout') { state.admin = false; return route.fulfill({ status: 204, body: '' }); }
     if (path === '/admin/dashboard') return json(200, { orders: { newToday: 6, awaitingDispatch: 4, payOnDeliveryUnpaid: 3 }, attention: { lowStockVariants: 5, outOfStockPublished: 2, reviewsPending: 3, contactUnhandled: 2 }, revenueToday: KES(41200) });
     if (path === '/admin/products' && method === 'GET') return json(200, { items: PRODUCTS.map((p) => ({ id: p.id, name: p.name, slug: p.slug, category: p.category, status: 'published', price: p.price, totalStock: 7, variantCount: p.variants.length, primaryThumbUrl: '/assets/img/placeholder.svg', updatedAt: '2026-09-05T10:00:00Z' })), page: 1, pageSize: 20, total: PRODUCTS.length, totalPages: 1 });
+    if (path.match(/^\/admin\/products\/[^/]+\/preview$/) && method === 'GET') {
+      const id = path.split('/')[3];
+      const p = PRODUCTS.find((x) => x.id === id) || (id === 'prod_new' ? { ...PRODUCTS[0], id: 'prod_new', slug: 'test-sample-product', name: 'Test Sample Product' } : null);
+      return p ? json(200, { ...p, related: [], previewStatus: 'draft' }) : err(404, 'not_found', 'No such product.');
+    }
     if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'GET') { const p = PRODUCTS.find((x) => x.id === path.split('/')[3]); return p ? json(200, { ...p, status: 'published', basePrice: p.price }) : err(404, 'not_found', 'No such product.'); }
     if (path === '/admin/products' && method === 'POST') return json(201, { id: 'prod_new', slug: body.slug, status: body.status, ...body });
     if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'PATCH') return json(200, { id: path.split('/')[3], ...body });
@@ -464,6 +476,28 @@ export async function installMockApi(page, opts = {}) {
     if (path.match(/^\/admin\/orders\/[^/]+\/resend-notification$/)) return route.fulfill({ status: 202, body: '' });
     if (path === '/admin/reviews' && method === 'GET') return json(200, { items: [{ id: 'rev_1', productName: 'Orin Linen Dress', authorFirstName: 'Amina', authorEmail: 'a@example.com', rating: 5, title: 'Lovely', body: 'Fits great and washes well.', verifiedPurchase: true, status: url.searchParams.get('status') || 'pending', createdAt: '2026-09-01T09:00:00Z' }], page: 1, pageSize: 15, total: 1, totalPages: 1 });
     if (path.match(/^\/admin\/reviews\/[^/]+$/) && method === 'PATCH') return json(200, { id: path.split('/')[3], ...body });
+    if (path === '/admin/contacts' && method === 'GET') {
+      let items = state.contacts;
+      if (url.searchParams.has('handled')) items = items.filter((c) => String(c.handled) === url.searchParams.get('handled'));
+      if (url.searchParams.get('topic')) items = items.filter((c) => c.topic === url.searchParams.get('topic'));
+      return json(200, {
+        items: items.map((c) => ({ reference: c.reference, name: c.name, email: c.email, phone: c.phone, topic: c.topic, orderNumber: c.orderNumber, messageExcerpt: c.message.slice(0, 120), handled: c.handled, handledAt: c.handledAt, createdAt: c.createdAt })),
+        page: 1, pageSize: 25, total: items.length, totalPages: 1,
+      });
+    }
+    if (path.match(/^\/admin\/contacts\/[^/]+$/) && method === 'GET') {
+      const c = state.contacts.find((x) => x.reference === decodeURIComponent(path.split('/')[3]));
+      return c ? json(200, c) : err(404, 'not_found', 'No message has that reference.');
+    }
+    if (path.match(/^\/admin\/contacts\/[^/]+$/) && method === 'PATCH') {
+      const c = state.contacts.find((x) => x.reference === decodeURIComponent(path.split('/')[3]));
+      if (!c) return err(404, 'not_found', 'No message has that reference.');
+      if (typeof body.handled !== 'boolean') return err(422, 'validation_error', 'Body must be { handled: boolean }.');
+      c.handled = body.handled;
+      c.handledAt = body.handled ? new Date().toISOString() : null;
+      c.handledBy = body.handled ? 'usr_admin1' : null;
+      return json(200, c);
+    }
     if (path === '/admin/subscribers' && method === 'GET') return json(200, { items: [{ id: 'sub_88', email: 'amina@gmail.com', status: 'confirmed', source: 'footer', newArrivals: true, backInStock: true, createdAt: '2026-08-01T00:00:00Z', confirmedAt: '2026-08-01T00:10:00Z' }], page: 1, pageSize: 25, total: 1, totalPages: 1 });
     if (path === '/admin/broadcasts' && method === 'GET') return json(200, { items: [{ id: 'bcast_12', subject: 'New in: the September leather edit', status: 'sent', sentCount: 812, openCount: 240, createdAt: '2026-09-02T08:00:00Z' }] });
     if (path === '/admin/broadcasts' && method === 'POST') return json(201, { id: 'bcast_13', status: 'queued', recipientCount: 812, createdAt: new Date().toISOString() });

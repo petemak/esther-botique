@@ -190,6 +190,8 @@ export const api = {
 
     getProducts: (query) => get('/admin/products', query),
     getProduct: (id) => get(`/admin/products/${encodeURIComponent(id)}`),
+    /** A3 — draft/any-status PDP preview: storefront ProductDetail shape + previewStatus. */
+    previewProduct: (id) => get(`/admin/products/${encodeURIComponent(id)}/preview`),
     createProduct: (body) => post('/admin/products', body),
     updateProduct: (id, body) => patch(`/admin/products/${encodeURIComponent(id)}`, body),
     deleteProduct: (id) => del(`/admin/products/${encodeURIComponent(id)}`),
@@ -236,6 +238,11 @@ export const api = {
 
     getReviews: (query) => get('/admin/reviews', query),
     moderateReview: (id, body) => patch(`/admin/reviews/${encodeURIComponent(id)}`, body),
+
+    /* ---- A15 contact inbox (read-only: list / detail / mark handled) ---- */
+    getContacts: (query) => get('/admin/contacts', query),
+    getContact: (reference) => get(`/admin/contacts/${encodeURIComponent(reference)}`),
+    updateContact: (reference, body) => patch(`/admin/contacts/${encodeURIComponent(reference)}`, body),
 
     getSubscribers: (query) => get('/admin/subscribers', query),
     subscribersExportUrl: (status) =>

@@ -1,7 +1,7 @@
 # API Contract — House of Esther
 
 _The build-time agreement between frontend and backend. Every dynamic block in
-`design-spec.md` (D1-D28, A1-A14) maps to endpoints here. Constrained by
+`design-spec.md` (D1-D28, A1-A15) maps to endpoints here. Constrained by
 `engineering-standards.md`._
 
 ---
@@ -768,6 +768,14 @@ Response `201`:
 ```json
 { "reference": "MSG-2026-0442", "message": "Got it. We reply within one business day." }
 ```
+**Persistence:** a successful (non-honeypot) submission is written to the
+`contact_messages` table — `id`, `reference` (`MSG-<year>-<seq>`, the external handle
+returned to the customer), `name`, `email`, `phone`, `topic`, `orderNumber` (nullable),
+`message`, `handled` (boolean, defaults `false`), `createdAt`. Honeypot hits return `200`
+and are not persisted. These rows are read and triaged through the admin contact inbox
+(A15); there is no automated staff notification beyond the `attention.contactUnhandled`
+count on the admin dashboard (A2). Replies to customers are sent by email outside the app
+at launch.
 Errors: `422`, `429 rate_limited`.
 
 ## D28 — Journal
@@ -826,6 +834,8 @@ Response `200`:
   "revenueToday": { "amount": 41200, "currency": "KES" }
 }
 ```
+`attention.contactUnhandled` is the count of `contact_messages` rows with
+`handled = false` (see A15); the dashboard links it through to the contact inbox.
 
 ## A3 — Products (admin)
 
@@ -843,6 +853,31 @@ Response `200`: paginated list of:
 ### `GET /api/admin/products/{id}`
 Response `200`: full admin product (all fields from `ProductDetail` plus `status`,
 per-variant `lowStockThreshold`, `costPrice` optional, `seo`, timestamps).
+
+### `GET /api/admin/products/{id}/preview`
+Admin session + role required (the same guard as every other `/api/admin/*` route).
+`Cache-Control: no-store`.
+
+Returns the product in the **exact storefront `ProductDetail` shape** that the public
+`GET /api/products/{slug}` returns — same `breadcrumbs`, `optionAxes`, `variants` (with
+`inStock` / `stockState` / `quantityAvailable`), `images` (thumb + full URLs), `story`,
+`care`, `specs`, `rating`, `sizeGuideCategory`, and `seo` block — **for a product of any
+`status`**: `draft`, `published`, or `archived`. `related` is not part of this shape and
+callers should treat it as empty. This is what the admin "Preview" link renders so Esther
+sees an unpublished PDP exactly as customers will once it goes live.
+
+Response `200`: `ProductDetail` (identical schema to `GET /api/products/{slug}`) with one
+additive top-level field used only to drive the preview banner:
+```json
+{ "previewStatus": "draft" }
+```
+`previewStatus` ∈ `draft` | `published` | `archived`. Public storefront clients never
+call this endpoint and never receive this field.
+
+Errors: `404 not_found` (no product with that id), `401 unauthorized`, `403 forbidden`.
+
+The public `GET /api/products/{slug}` is **unchanged** — it still returns `404 not_found`
+for any non-published product, to everyone, admin or not.
 
 ### `POST /api/admin/products`
 Request:
@@ -1104,17 +1139,82 @@ UI must re-show the updated document.
 Validation and application always happen server-side (`POST /api/cart/discount` and again
 in `POST /api/orders`); the code list is never trusted from the client.
 
+## A15 — Contact inbox (admin, read-only)
+
+Replies to customers happen by email (or WhatsApp) **outside the app** at launch — these
+endpoints are list / read / mark-handled only. There is no reply or notes field. Admin
+session + role are checked server-side on every call; the standard error shape applies;
+`Cache-Control: no-store`. Records are addressed by **`reference`** (e.g.
+`MSG-2026-0442`), consistent with orders being addressed by `orderNumber`.
+
+Rows are created by the public `POST /api/contact` (D26), which persists to
+`contact_messages`.
+
+### `GET /api/admin/contacts`
+Query: `handled` (bool, optional — omit for all), `topic` (optional:
+`order_issue` | `return` | `product_question` | `wholesale_press` | `other`),
+`page`, `pageSize`.
+Response `200` (standard pagination envelope):
+```json
+{
+  "items": [
+    {
+      "reference": "MSG-2026-0442",
+      "name": "Amina W.",
+      "email": "amina@gmail.com",
+      "phone": "+254712345123",
+      "topic": "return",
+      "orderNumber": "HE-2026-04871",
+      "messageExcerpt": "My delivery ETA passed — any update? I also want to return the...",
+      "handled": false,
+      "handledAt": null,
+      "createdAt": "2026-09-13T08:04:00Z"
+    }
+  ],
+  "page": 1, "pageSize": 24, "total": 12, "totalPages": 1
+}
+```
+`messageExcerpt` is the first ~120 characters of the message body. `orderNumber` is
+`null` when the sender did not give one.
+
+### `GET /api/admin/contacts/{reference}`
+Response `200`:
+```json
+{
+  "reference": "MSG-2026-0442",
+  "name": "Amina W.",
+  "email": "amina@gmail.com",
+  "phone": "+254712345123",
+  "topic": "return",
+  "orderNumber": "HE-2026-04871",
+  "message": "My delivery ETA passed — any update? I also want to return the Orin Linen Dress, it did not fit.",
+  "handled": false,
+  "handledAt": null,
+  "handledBy": null,
+  "createdAt": "2026-09-13T08:04:00Z"
+}
+```
+`404 not_found` if no message has that reference.
+
+### `PATCH /api/admin/contacts/{reference}`
+Request: `{ "handled": true }` (also accepts `{ "handled": false }` to reopen).
+When moving to `handled: true` the server sets `handledAt` (server time) and `handledBy`
+(the acting admin user id); when moving back to `false` it clears both.
+Response `200`: the full detail object (same shape as `GET /api/admin/contacts/{reference}`).
+Errors: `404 not_found`, `422 validation_error` (body is not `{ "handled": boolean }`),
+`401 unauthorized`, `403 forbidden`.
+
 ---
 
 ## Endpoint ↔ capability coverage
 
 | Capability | Key endpoints |
 |---|---|
-| Catalog / inventory | `GET /products*`, `GET /categories`, `GET /collections/*`, `/api/admin/products*`, `/api/admin/inventory*`, `/api/admin/collections*`, `POST /api/admin/images` |
+| Catalog / inventory | `GET /products*`, `GET /categories`, `GET /collections/*`, `/api/admin/products*`, `GET /api/admin/products/{id}/preview` (draft / any-status PDP preview), `/api/admin/inventory*`, `/api/admin/collections*`, `POST /api/admin/images` |
 | Payments / checkout | `POST /checkout/quote`, `POST /orders`, `POST /payments/mpesa/stk-push`, `GET /payments/{id}`, `POST /payments/mpesa/callback`, `PATCH /api/admin/orders/{n}/payment`, `POST /api/admin/orders/{n}/refund` |
 | Accounts / auth | `/api/auth/*`, `/api/account/*`, `/api/admin/auth/*` |
-| Admin / back-office | all `/api/admin/*` |
+| Admin / back-office | all `/api/admin/*` — incl. `GET /api/admin/products/{id}/preview` (draft-product preview) and `GET`/`PATCH /api/admin/contacts` (read-only contact inbox) |
 | Search / discovery | `GET /products` (facets/sort), `GET /search/suggestions` |
-| Notifications | order-confirmation on `POST /orders`, receipt on callback, transition emails on `PATCH /api/admin/orders/{n}/status`, `/api/subscriptions*`, `/api/admin/broadcasts*`, back-in-stock side effect on `POST /api/admin/inventory/adjustments`, `/api/account/notification-preferences` |
+| Notifications | order-confirmation on `POST /orders`, receipt on callback, transition emails on `PATCH /api/admin/orders/{n}/status`, `/api/subscriptions*`, `/api/admin/broadcasts*`, back-in-stock side effect on `POST /api/admin/inventory/adjustments`, `/api/account/notification-preferences`; inbound contact-form messages persist to `contact_messages` and are triaged via `GET`/`PATCH /api/admin/contacts` (customer replies sent by email outside the app) |
 | Legal / compliance | `GET /legal/{docType}`, `GET /legal/{docType}/versions/{n}`, `/api/admin/legal*` |
 | Customer agreements (partial) | `agreementAcceptance` block in `POST /api/orders` request + the **immutable acceptance record written as a transaction side effect**; surfaced on `GET /orders/{n}`, `GET /account/orders/{n}`, `GET /api/admin/orders/{n}`. No update/delete endpoint exists for it by design. |

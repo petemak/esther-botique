@@ -1,7 +1,8 @@
 # House of Esther — Backend
 
-Clojure API implementing `api-contract.md` (99 endpoints). One service, one
-Postgres database, versioned migrations.
+Clojure API implementing `api-contract.md` (103 endpoints — contract md5
+`ff9bf99dd4adae4a893b7a7a172aabd1`). One service, one Postgres database,
+versioned migrations.
 
 ## Stack
 

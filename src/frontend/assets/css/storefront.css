@@ -514,6 +514,53 @@
   background: var(--white);
 }
 
+/* ---------- Admin PDP preview ---------- */
+.preview-banner {
+  background: var(--brass);
+  color: var(--ink-navy);
+  border: 1px solid var(--brass-dark);
+  border-radius: var(--radius);
+  padding: var(--space-2xs) var(--space-s);
+  margin-bottom: var(--space-m);
+  font-size: var(--step--1);
+}
+.preview-banner--live {
+  background: var(--bone-dark);
+  color: var(--text-muted);
+}
+.preview-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-s);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2xs) 0 var(--space-s);
+  background: var(--bone);
+  border-bottom: 1px solid var(--hairline);
+}
+.preview-stage {
+  padding-top: var(--space-m);
+}
+.preview-stage[data-mode="mobile"] {
+  display: flex;
+  justify-content: center;
+}
+.preview-iframe {
+  width: 100%;
+  height: calc(100vh - 8rem);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+.preview-stage[data-mode="mobile"] .preview-iframe {
+  width: 390px;
+  max-width: 100%;
+  box-shadow: var(--shadow-2);
+}
+
 /* ---------- Checkout ---------- */
 .checkout-layout {
   display: grid;

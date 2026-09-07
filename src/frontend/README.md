@@ -57,12 +57,23 @@ convenience only).
 - Consider fingerprinting `assets/**` filenames at deploy for long-cache immutability;
   the HTML shells should stay short-cache.
 
-## Deferred (per the lead, this milestone)
+## Admin draft-PDP preview & contact inbox
 
-- **Admin draft-PDP preview** — the "Preview" control on the product editor is a disabled
-  stub. `GET /api/products/{slug}` 404s for unpublished products by design.
-- **Admin contact-message inbox** — the dashboard shows the `contactUnhandled` count as
-  plain text only; contact-form submissions are handled by email. No admin contacts page.
+Both shipped (contract `ff9bf99…`, A3 preview endpoint + A15 contact inbox):
+
+- **Preview** — `admin/product-edit.html` → "Preview" opens `product.html?preview={id}` in a
+  new tab. That page renders a slim toolbar with a Mobile/Desktop width toggle and an
+  `<iframe>` (`?preview={id}&framed=1`) so the PDP renders at a true phone viewport width.
+  The framed PDP calls `GET /api/admin/products/{id}/preview` (admin cookie auth), shows a
+  persistent banner keyed off `previewStatus`, and skips the reviews + related sections
+  (`related` is not in the preview shape). The public `GET /api/products/{slug}` still
+  404s for non-published products.
+- **Contact inbox** — `admin/contacts.html` (nav: after Reviews). Read-only list
+  (`GET /api/admin/contacts`, filters: handled state defaulting to unhandled + topic) →
+  detail (`GET /api/admin/contacts/{reference}`) → Mark handled / Reopen
+  (`PATCH …`). No reply UI; sender email/phone shown plainly, page states replies go by
+  email. The dashboard "contact messages unhandled" stat links to
+  `/admin/contacts.html?handled=false`.
 
 ## Tests
 

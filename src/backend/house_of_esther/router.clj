@@ -28,6 +28,7 @@
             [house-of-esther.search :as search]
             [house-of-esther.subscriptions :as subscriptions]
             [house-of-esther.admin.auth :as admin-auth]
+            [house-of-esther.admin.contacts :as admin-contacts]
             [house-of-esther.admin.images :as admin-images]
             [house-of-esther.admin.inventory :as admin-inventory]
             [house-of-esther.admin.marketing :as admin-marketing]
@@ -51,7 +52,7 @@
                  [(into ["" {:middleware [mw/require-admin]}]
                         (concat admin-products/routes admin-images/routes admin-inventory/routes
                                 admin-taxonomy/routes admin-orders/routes admin-moderation/routes
-                                admin-marketing/routes admin-site/routes))]))])
+                                admin-marketing/routes admin-site/routes admin-contacts/routes))]))])
 
 (def routes
   (into ["/api"] (concat public-routes account-routes admin-routes)))

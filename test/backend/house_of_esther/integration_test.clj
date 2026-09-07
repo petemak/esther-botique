@@ -62,9 +62,11 @@
         (db/with-tx [c]
           (doseq [tbl ["order_activity_log" "order_notes" "agreement_acceptances" "payments"
                        "order_items" "orders" "cart_items" "carts" "reviews" "wishlist_items"
-                       "addresses" "inventory_adjustments" "idempotency_keys" "sessions"]]
+                       "addresses" "inventory_adjustments" "idempotency_keys" "sessions"
+                       "contact_messages" "product_variants" "products"]]
             (db/exec! c [(str "delete from " tbl)]))
           (db/exec! c ["delete from users"])
+          (db/exec! c ["alter sequence order_number_seq restart with 4871"])
           (seed/seed! c cfg))
         (binding [*handler* (router/handler cfg)]
           (t))
@@ -168,3 +170,123 @@
         (let [addrs (call {:method :get :uri "/api/account/addresses" :jar jar})]
           (is (= 1 (count (get-in addrs [:body :items]))))
           (is (true? (get-in addrs [:body :items 0 :isDefault]))))))))
+
+;; --- A3 draft-product preview -----------------------------------
+
+(deftest admin-product-preview-draft
+  (when db-url
+    (testing "unauthenticated -> 401"
+      (let [r (call {:method :get :uri "/api/admin/products/prod_draft/preview"})]
+        (is (= 401 (:status r)))))
+    (testing "admin gets the storefront ProductDetail shape for a draft product"
+      (let [{:keys [jar]} (admin-login)
+            r (call {:method :get :uri "/api/admin/products/prod_draft/preview" :jar jar})
+            b (:body r)]
+        (is (= 200 (:status r)))
+        (is (= "draft" (:previewStatus b)))
+        (is (= "no-store" (get-in r [:raw :headers "Cache-Control"])))
+        ;; exact PDP shape markers
+        (is (vector? (:breadcrumbs b)))
+        (is (contains? b :story))
+        (is (contains? b :care))
+        (is (contains? b :sizeGuideCategory))
+        (is (contains? b :seo))
+        (is (every? #(contains? % :stockState) (:variants b)))
+        (is (every? #(contains? % :fullUrl) (:images b))))
+      (testing "unknown id -> 404"
+        (let [{:keys [jar]} (admin-login)
+              r (call {:method :get :uri "/api/admin/products/prod_nope/preview" :jar jar})]
+          (is (= 404 (:status r)))
+          (is (= "not_found" (get-in r [:body :error :code])))))
+      (testing "public PDP still 404s for the same draft product"
+        (let [r (call {:method :get :uri "/api/products/nia-cropped-jacket"})]
+          (is (= 404 (:status r))))))))
+
+;; --- A15 contact inbox -----------------------------------------
+
+(defn- submit-contact [jar csrf topic order-no msg]
+  (call {:method :post :uri "/api/contact" :jar jar :headers {"x-csrf-token" csrf}
+         :body (cond-> {:name "Test Person" :email "tester@example.com" :phone "+254700000000"
+                        :topic topic :message msg :website ""}
+                 order-no (assoc :orderNumber order-no))}))
+
+(deftest admin-contacts-list-filter-and-patch
+  (when db-url
+    (let [pub-jar (:jar (call {:method :get :uri "/api/auth/me"}))
+          pub-csrf (get pub-jar "he_csrf")
+          long-msg (apply str "My delivery ETA passed and I want to return the Orin Linen Dress " (repeat 6 "because it did not fit at all "))
+          r1 (submit-contact pub-jar pub-csrf "return" "HE-2026-04871" long-msg)
+          _  (submit-contact pub-jar pub-csrf "wholesale_press" nil "Do you do wholesale?")
+          ref1 (get-in r1 [:body :reference])
+          {:keys [jar]} (admin-login)]
+
+      (testing "POST /api/contact persisted the rows"
+        (is (= 201 (:status r1)))
+        (is (re-matches #"MSG-\d{4}-\d{4}" ref1)))
+
+      (testing "unauthenticated list -> 401"
+        (is (= 401 (:status (call {:method :get :uri "/api/admin/contacts"})))))
+
+      (testing "list envelope + excerpt + no-store"
+        (let [r (call {:method :get :uri "/api/admin/contacts" :jar jar})
+              b (:body r)]
+          (is (= 200 (:status r)))
+          (is (= "no-store" (get-in r [:raw :headers "Cache-Control"])))
+          (is (every? b [:items :page :pageSize :total :totalPages]))
+          (is (= 2 (:total b)))
+          (let [item (first (filter #(= ref1 (:reference %)) (:items b)))]
+            (is (<= (count (:messageExcerpt item)) 124))
+            (is (str/ends-with? (:messageExcerpt item) "..."))
+            (is (= "HE-2026-04871" (:orderNumber item)))
+            (is (false? (:handled item)))
+            (is (nil? (:handledAt item))))))
+
+      (testing "filter by topic"
+        (let [b (:body (call {:method :get :uri "/api/admin/contacts?topic=return" :jar jar}))]
+          (is (= 1 (:total b)))
+          (is (= "return" (:topic (first (:items b)))))))
+
+      (testing "filter by handled"
+        (is (= 2 (:total (:body (call {:method :get :uri "/api/admin/contacts?handled=false" :jar jar})))))
+        (is (= 0 (:total (:body (call {:method :get :uri "/api/admin/contacts?handled=true" :jar jar}))))))
+
+      (testing "invalid topic filter -> 422"
+        (is (= 422 (:status (call {:method :get :uri "/api/admin/contacts?topic=nope" :jar jar})))))
+
+      (testing "GET detail returns full body + handledBy, unknown ref -> 404"
+        (let [b (:body (call {:method :get :uri (str "/api/admin/contacts/" ref1) :jar jar}))]
+          (is (= long-msg (:message b)))
+          (is (contains? b :handledBy)))
+        (is (= 404 (:status (call {:method :get :uri "/api/admin/contacts/MSG-2026-9999" :jar jar})))))
+
+      (testing "PATCH handled:true sets handledAt + handledBy"
+        (let [csrf (get jar "he_csrf")
+              r (call {:method :patch :uri (str "/api/admin/contacts/" ref1) :jar jar
+                       :headers {"x-csrf-token" csrf} :body {:handled true}})
+              b (:body r)]
+          (is (= 200 (:status r)))
+          (is (true? (:handled b)))
+          (is (some? (:handledAt b)))
+          (is (= "usr_admin1" (:handledBy b)))
+          (is (= 1 (:total (:body (call {:method :get :uri "/api/admin/contacts?handled=true" :jar jar})))))))
+
+      (testing "PATCH handled:false clears them"
+        (let [csrf (get jar "he_csrf")
+              b (:body (call {:method :patch :uri (str "/api/admin/contacts/" ref1) :jar jar
+                              :headers {"x-csrf-token" csrf} :body {:handled false}}))]
+          (is (false? (:handled b)))
+          (is (nil? (:handledAt b)))
+          (is (nil? (:handledBy b)))))
+
+      (testing "PATCH with a bad body -> 422"
+        (let [csrf (get jar "he_csrf")]
+          (is (= 422 (:status (call {:method :patch :uri (str "/api/admin/contacts/" ref1) :jar jar
+                                     :headers {"x-csrf-token" csrf} :body {:handled "yes"}})))))
+        (let [csrf (get jar "he_csrf")]
+          (is (= 422 (:status (call {:method :patch :uri (str "/api/admin/contacts/" ref1) :jar jar
+                                     :headers {"x-csrf-token" csrf} :body {:foo 1}}))))))
+
+      (testing "PATCH unknown reference -> 404"
+        (let [csrf (get jar "he_csrf")]
+          (is (= 404 (:status (call {:method :patch :uri "/api/admin/contacts/MSG-2026-9999" :jar jar
+                                     :headers {"x-csrf-token" csrf} :body {:handled true}})))))))))

@@ -31,9 +31,8 @@ async function start() {
           stat(d.attention.lowStockVariants, 'Low-stock variants', '/admin/inventory.html?stock=low', true),
           stat(d.attention.outOfStockPublished, 'Out of stock (published)', '/admin/inventory.html?stock=out', true),
           stat(d.attention.reviewsPending, 'Reviews pending', '/admin/reviews.html?status=pending', true),
-          stat(d.attention.contactUnhandled, 'Contact messages unhandled', null, true),
+          stat(d.attention.contactUnhandled, 'Contact messages unhandled', '/admin/contacts.html?handled=false', true),
         ]),
-        el('p', { class: 'hint', style: 'margin-top:.5rem', text: 'Contact messages are handled by email for now — this is a count only.' }),
       ]),
       el('section', { style: 'margin-top:1.5rem' }, [
         el('h2', { style: 'font-size:var(--step-1)', text: 'Quick actions' }),

@@ -9,6 +9,7 @@ const NAV = [
   ['inventory', 'Inventory', '/admin/inventory.html'],
   ['orders', 'Orders', '/admin/orders.html'],
   ['reviews', 'Reviews', '/admin/reviews.html'],
+  ['contacts', 'Contact messages', '/admin/contacts.html'],
   ['collections', 'Collections & categories', '/admin/collections.html'],
   ['subscribers', 'Subscribers & broadcasts', '/admin/subscribers.html'],
   ['content', 'Homepage content', '/admin/content.html'],

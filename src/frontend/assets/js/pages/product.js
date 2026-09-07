@@ -1,7 +1,7 @@
 import { api, ApiError } from '../api.js';
 import { el, clear, imageEl, $ } from '../dom.js';
 import { productCard, priceEl, breadcrumb, stars, emptyState, errorState, fieldError, applyValidationErrors } from '../components.js';
-import { formatDate, getParam, setPageMeta, injectJsonLd } from '../util.js';
+import { formatDate, getParam, setPageMeta, injectJsonLd, ensureAbsoluteCanonical } from '../util.js';
 import { openModal, openLightbox } from '../modal.js';
 import { sizeGuideSections } from '../sizeguide.js';
 import { bootStorefront, view, showSpinner } from './_boot.js';
@@ -10,30 +10,81 @@ import { openCartDrawer } from '../cart.js';
 import { currentUser } from '../auth.js';
 import { toast } from '../toast.js';
 
-bootStorefront({ active: '' });
-
 const slug = getParam('slug');
+const previewId = getParam('preview'); // admin draft/any-status preview (A3)
+const framed = getParam('framed') === '1'; // the PDP inside the preview shell's width iframe
+const isPreview = !!previewId;
+
 let product;
 const selection = {};
 let selectedVariant = null;
 let qty = 1;
 
-if (!slug) {
-  render404();
+if (isPreview && !framed) {
+  renderPreviewShell(previewId);
 } else {
-  load();
+  bootStorefront({ active: '' });
+  if (isPreview) {
+    setPageMeta({ noindex: true });
+    load();
+  } else if (!slug) {
+    render404();
+  } else {
+    load();
+  }
+}
+
+/**
+ * The outer "Preview" shell (design-spec page 33): a slim toolbar with a device-width
+ * toggle, and an <iframe> that renders the real PDP at a true phone / desktop viewport
+ * width so Esther can do the phone-width check journey 3 step 8 calls for.
+ */
+function renderPreviewShell(id) {
+  ensureAbsoluteCanonical();
+  const root = view();
+  clear(root);
+  setPageMeta({ title: 'Preview — House of Esther Admin', noindex: true });
+
+  const frame = el('iframe', {
+    class: 'preview-iframe',
+    title: 'Product preview',
+    src: `/product.html?preview=${encodeURIComponent(id)}&framed=1`,
+  });
+  const stage = el('div', { class: 'preview-stage', dataset: { mode: 'desktop' } }, [frame]);
+
+  const setMode = (mode) => {
+    stage.dataset.mode = mode;
+    toolbar.querySelectorAll('[data-mode-btn]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.modeBtn === mode ? 'true' : 'false'));
+  };
+  const modeBtn = (mode, label) =>
+    el('button', { type: 'button', class: 'btn btn--small btn--secondary', dataset: { modeBtn: mode }, 'aria-pressed': mode === 'desktop' ? 'true' : 'false', text: label, on: { click: () => setMode(mode) } });
+
+  const toolbar = el('div', { class: 'preview-toolbar' }, [
+    el('a', { class: 'btn btn--small btn--ghost', href: `/admin/product-edit.html?id=${encodeURIComponent(id)}`, text: '← Back to editor' }),
+    el('div', { role: 'group', 'aria-label': 'Preview width', style: 'display:flex;gap:.35rem' }, [
+      modeBtn('mobile', 'Mobile'),
+      modeBtn('desktop', 'Desktop'),
+    ]),
+  ]);
+
+  root.append(toolbar, stage);
 }
 
 async function load() {
   showSpinner();
   try {
-    product = await api.getProduct(slug);
-    // Fresh stock re-check when the buy box mounts (D4 availability).
-    try {
-      const avail = await api.getProductAvailability(slug);
-      const map = new Map((avail.variants || []).map((v) => [v.id, v]));
-      product.variants = (product.variants || []).map((v) => ({ ...v, ...(map.get(v.id) || {}) }));
-    } catch { /* availability is best-effort */ }
+    if (isPreview) {
+      product = await api.admin.previewProduct(previewId);
+      // preview response already carries fresh stock; the public availability endpoint 404s for drafts.
+    } else {
+      product = await api.getProduct(slug);
+      // Fresh stock re-check when the buy box mounts (D4 availability).
+      try {
+        const avail = await api.getProductAvailability(slug);
+        const map = new Map((avail.variants || []).map((v) => [v.id, v]));
+        product.variants = (product.variants || []).map((v) => ({ ...v, ...(map.get(v.id) || {}) }));
+      } catch { /* availability is best-effort */ }
+    }
     renderProduct();
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) render404();
@@ -63,11 +114,16 @@ function renderProduct() {
   const root = view();
   clear(root);
 
-  setPageMeta({
-    title: (product.seo && product.seo.title) || `${product.name} — House of Esther`,
-    description: (product.seo && product.seo.description) || product.shortDescription,
-    canonicalPath: `/product.html?slug=${encodeURIComponent(product.slug)}`,
-  });
+  if (isPreview) {
+    setPageMeta({ title: `Preview: ${product.name} — House of Esther`, noindex: true });
+    root.append(previewBanner());
+  } else {
+    setPageMeta({
+      title: (product.seo && product.seo.title) || `${product.name} — House of Esther`,
+      description: (product.seo && product.seo.description) || product.shortDescription,
+      canonicalPath: `/product.html?slug=${encodeURIComponent(product.slug)}`,
+    });
+  }
 
   if (product.breadcrumbs && product.breadcrumbs.length) root.append(breadcrumb(product.breadcrumbs));
 
@@ -82,11 +138,28 @@ function renderProduct() {
       product.care ? el('div', { class: 'prose', style: 'margin-top:1rem' }, [el('h3', { text: 'Care' }), el('p', { text: product.care })]) : null,
     ]),
     specAccordion(),
-    reviewsSection(),
-    relatedSection()
+    // Reviews + related are storefront-only; the preview endpoint has no `related`.
+    isPreview ? null : reviewsSection(),
+    isPreview ? null : relatedSection()
   );
 
-  injectJsonLd(productJsonLd());
+  if (!isPreview) injectJsonLd(productJsonLd());
+}
+
+function previewBanner() {
+  const status = product.previewStatus || 'draft';
+  const live = status === 'published';
+  return el('div', {
+    class: `preview-banner${live ? ' preview-banner--live' : ''}`,
+    role: 'status',
+  }, [
+    el('strong', { text: 'Preview' }),
+    document.createTextNode(
+      live
+        ? ' — this is the live version customers see.'
+        : ` — this product is a ${status} and is not visible to customers.`
+    ),
+  ]);
 }
 
 /* ---------------- Gallery ---------------- */

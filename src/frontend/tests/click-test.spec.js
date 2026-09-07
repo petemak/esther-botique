@@ -324,12 +324,84 @@ test.describe('admin', () => {
     await expect(page).toHaveURL(/product-edit\.html/);
     await page.fill('#p-name', 'Test Sample Product');
     await expect(page.locator('#p-slug')).toHaveValue('test-sample-product');
-    // preview stub is disabled (deferred feature)
-    await expect(page.getByRole('button', { name: /Preview draft/ })).toBeDisabled();
     await page.getByRole('button', { name: 'Save as draft' }).click();
     await expect(page.locator('#p-alert, .toast-region')).toBeTruthy();
 
     expect(errors).toEqual([]);
+  });
+
+  test('JOURNEY 3 step 8: Preview opens the PDP with a draft banner + working width toggle', async ({ page, context }) => {
+    await installMockApi(page, { admin: true });
+    await page.goto('/admin/product-edit.html?id=prod_1042');
+    await expect(page.locator('#preview-btn')).toBeVisible();
+
+    const [preview] = await Promise.all([
+      context.waitForEvent('page'),
+      page.locator('#preview-btn').click(),
+    ]);
+    await preview.waitForLoadState();
+    expect(preview.url()).toContain('preview=prod_1042');
+
+    // outer shell: toolbar + width toggle + iframe
+    await expect(preview.locator('.preview-toolbar')).toBeVisible();
+    const stage = preview.locator('.preview-stage');
+    await expect(stage).toHaveAttribute('data-mode', 'desktop');
+
+    // the framed PDP shows the persistent draft banner
+    const frame = preview.frameLocator('.preview-iframe');
+    await expect(frame.locator('.preview-banner')).toContainText(/not visible to customers/i);
+    await expect(frame.locator('h1')).toHaveText('Harlan Leather Crossbody');
+    // preview must not fetch related products
+    await expect(frame.getByRole('heading', { name: 'You may also like' })).toHaveCount(0);
+
+    await preview.getByRole('button', { name: 'Mobile' }).click();
+    await expect(stage).toHaveAttribute('data-mode', 'mobile');
+    const width = await preview.locator('.preview-iframe').evaluate((n) => n.getBoundingClientRect().width);
+    expect(width).toBeLessThan(420);
+
+    await preview.getByRole('button', { name: 'Desktop' }).click();
+    await expect(stage).toHaveAttribute('data-mode', 'desktop');
+  });
+
+  test('CONTACT INBOX: list loads, detail opens, mark-handled round-trips', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    const errors = trackErrors(page);
+
+    // reachable from the sidebar nav
+    await page.goto('/admin/');
+    await page.locator('.admin-sidebar').getByRole('link', { name: 'Contact messages' }).click();
+    await expect(page).toHaveURL(/admin\/contacts\.html/);
+    await expect(page.locator('.admin-table')).toContainText('MSG-2026-0442');
+
+    // defaults to unhandled; MSG-2026-0441 (handled) should not show
+    await expect(page.locator('.admin-table')).not.toContainText('MSG-2026-0441');
+
+    await page.getByRole('link', { name: 'MSG-2026-0442' }).click();
+    await expect(page).toHaveURL(/ref=MSG-2026-0442/);
+    await expect(page.getByText('amina@gmail.com')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open order' })).toHaveAttribute('href', /HE-2026-04871/);
+    await expect(page.getByText(/Replies to the customer are sent by email/i)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Mark as handled' }).click();
+    await expect(page.getByText(/^handled$/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reopen' })).toBeVisible();
+    await expect(page.getByText(/Handled .* by usr_admin1/)).toBeVisible();
+
+    // reopen round-trips back
+    await page.getByRole('button', { name: 'Reopen' }).click();
+    await expect(page.getByRole('button', { name: 'Mark as handled' })).toBeVisible();
+
+    expect(errors).toEqual([]);
+  });
+
+  test('dashboard "contact messages unhandled" links to the inbox', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    await page.goto('/admin/');
+    const stat = page.getByRole('link', { name: /Contact messages unhandled/i });
+    await expect(stat).toHaveAttribute('href', '/admin/contacts.html?handled=false');
+    await stat.click();
+    await expect(page).toHaveURL(/contacts\.html\?handled=false/);
+    await expect(page.locator('#c-handled')).toHaveValue('false');
   });
 
   test('JOURNEY 4 (partial): admin order detail -> dispatch + agreement panel', async ({ page }) => {
@@ -351,7 +423,7 @@ test.describe('admin', () => {
     await installMockApi(page, { admin: true });
     const errors = trackErrors(page);
     await page.goto('/admin/');
-    const links = ['Products', 'Inventory', 'Orders', 'Reviews', 'Collections & categories', 'Subscribers & broadcasts', 'Homepage content', 'Legal documents', 'Discount codes'];
+    const links = ['Products', 'Inventory', 'Orders', 'Reviews', 'Contact messages', 'Collections & categories', 'Subscribers & broadcasts', 'Homepage content', 'Legal documents', 'Discount codes'];
     for (const name of links) {
       await page.locator('.admin-sidebar').getByRole('link', { name }).click();
       await expect(page.locator('.admin-main h1')).toBeVisible();

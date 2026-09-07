@@ -150,15 +150,20 @@ Lives in Nakuru.
    the description.
 7. She clicks **Save as draft** (`POST /api/admin/products` with `status: "draft"`). The
    product is saved but not visible on the storefront.
-8. She previews the draft PDP via the admin "Preview" link, checks the gallery and story
-   read well on a phone-width preview.
+8. She clicks the **Preview** link on the product. A new tab opens the storefront PDP in
+   preview mode (`GET /api/admin/products/{id}/preview` — admin-guarded, `no-store`,
+   returning the same `ProductDetail` shape customers get but for her draft, with
+   `previewStatus: "draft"`). A persistent **"Draft — not visible to customers"** banner
+   sits at the top. She flips the **width toggle** to phone width and checks the gallery,
+   variant selector, stock cue and product story all read well.
 9. She clicks **Publish** (`PATCH /api/admin/products/{id} { status: "published" }`).
 10. **Verification.** She opens the storefront in a new tab, goes to **Accessories → Bags**
     (`GET /api/products?category=accessories&subcategory=bags`) — the crossbody appears
     in the grid with the "New In" tag. She opens its PDP; variants, stock cue ("Low
     stock — Black") and images are correct. She also checks it shows under **New In**.
     (Catalog GETs are CDN-cached ~2 min, so she knows a brand-new publish can take up to
-    a couple of minutes to appear for everyone — the admin views are always live.)
+    a couple of minutes to appear for everyone — Preview and the admin views are always
+    live, so she has already confirmed the page is right.)
 11. Back in admin, she creates a **broadcast** (`POST /api/admin/broadcasts`) — subject
     "New in: the September leather edit", picks this product + the other four, audience
     = new-arrivals opt-ins. She sends herself a **test** first
@@ -193,11 +198,16 @@ Lives in Nakuru.
 ### Part B — return and refund
 
 6. A week later Amina (Journey 1) messages via the **Contact form** (topic = Return,
-   order number pre-filled from a link on her Account order detail) —
-   `POST /api/contact` creates ticket MSG-2026-0442. She gets "We reply within one
-   business day."
-7. Esther reads it, approves the return per the Returns & Refund Policy, and tells Amina
-   how to send the dress back (email reply outside the app at launch).
+   order number pre-filled from a link on her Account order detail) — `POST /api/contact`
+   persists the message to `contact_messages` as reference MSG-2026-0442 and shows her
+   "Got it. We reply within one business day."
+7. Esther opens **Admin → Contact messages** (`GET /api/admin/contacts?handled=false`),
+   opens MSG-2026-0442 (`GET /api/admin/contacts/MSG-2026-0442`), reads the full note
+   (with a click-through to the linked order), approves the return per the Returns &
+   Refund Policy, and replies to Amina by email (outside the app at launch) explaining
+   how to send the dress back. She then marks the message handled
+   (`PATCH /api/admin/contacts/MSG-2026-0442 { "handled": true }`), which stamps
+   `handledAt` / `handledBy` and drops it off the dashboard's unhandled count.
 8. When the dress arrives back in good condition, Esther opens the order in admin and
    clicks **Refund**: `POST /api/admin/orders/HE-2026-04871/refund` with an
    `Idempotency-Key`, `amount` = full item value, `reason: "return_accepted"`,
@@ -228,8 +238,11 @@ Lives in Nakuru.
 - **Quote drives payment options, not just price.** Pay-on-delivery must disappear from
   the Payment section the moment a `rest_of_kenya` address is chosen — deciding this only
   at `POST /api/orders` (after the customer picked it) is a dead end.
-- **Publish latency is visible to Esther.** Journey 3 step 10: because catalog reads are
-  CDN-cached, the storefront can lag a publish by ~2 minutes. The admin "Preview" link
-  must bypass the cache so she can verify immediately, and the admin UI should say so.
+- **Publish latency is visible to Esther — handled.** Because public catalog reads are
+  CDN-cached, the storefront can lag a publish by ~2 minutes (Journey 3 step 10). This is
+  covered: `GET /api/admin/products/{id}/preview` and every admin view read live,
+  uncached data, so Esther verifies the PDP via the Preview link (with its draft banner
+  and phone-width toggle) both before and after publishing. The Publishing section of the
+  product form states the ~2-minute public lag so the delay is expected, not alarming.
 - **New-stock email links must deep-link to the live PDP**, not a generic "New In" page —
   Journey 2 depends on the tapped product still being purchasable when she arrives.

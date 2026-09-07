@@ -186,18 +186,28 @@
                :heading heading})
        resp/cache-catalog))))
 
+(defn detail-map
+  "Build the storefront ProductDetail map for a product row (any status).
+   Shared by the public PDP and the admin preview endpoint."
+  [conn p]
+  (let [variants (variants-for conn [(:id p)])
+        images   (images-by-id conn (:imageIds p))
+        rating   (get (ratings-for conn [(:id p)]) (:id p))
+        cat      (db/q1 conn ["select label from categories where slug = ?" (:category p)])
+        subcat   (db/q1 conn ["select label from categories where slug = ?" (:subcategory p)])]
+    (present/product-detail p {:images images :variants variants :rating rating
+                               :cat-label (:label cat) :subcat-label (:label subcat)})))
+
+(defn product-by-id
+  "Fetch a product row by id, any status. nil if unknown."
+  [conn id]
+  (db/q1 conn (into [(str "select " product-cols " from products p where p.id = ?")] [id])))
+
 (defn get-product [{{:keys [slug]} :path-params}]
   (db/with-tx [conn]
     (let [p (db/q1 conn (into [(str "select " product-cols " from products p where slug = ? and status = 'published'")] [slug]))]
       (when-not p (throw (err/not-found "That piece isn't available right now.")))
-      (let [variants (variants-for conn [(:id p)])
-            images   (images-by-id conn (:imageIds p))
-            rating   (get (ratings-for conn [(:id p)]) (:id p))
-            cat      (db/q1 conn ["select label from categories where slug = ?" (:category p)])
-            subcat   (db/q1 conn ["select label from categories where slug = ?" (:subcategory p)])]
-        (resp/ok (present/product-detail p {:images images :variants variants :rating rating
-                                            :cat-label (:label cat) :subcat-label (:label subcat)})
-                 resp/cache-catalog)))))
+      (resp/ok (detail-map conn p) resp/cache-catalog))))
 
 (defn availability [{{:keys [slug]} :path-params}]
   (db/with-tx [conn]
