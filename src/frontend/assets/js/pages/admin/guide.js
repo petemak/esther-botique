@@ -1,0 +1,210 @@
+import { el } from '../../dom.js';
+import { adminShell } from './_shell.js';
+
+/*
+ * Shop owner's guide — 100% static, plain-language help for Esther. No API calls
+ * beyond the admin session check that adminShell() already does. Written in her
+ * voice: warm, direct, "you", short sentences, says what to click.
+ */
+
+const h3 = (text) => el('h3', { text });
+const p = (children) => el('p', {}, children);
+const lnk = (href, text) => el('a', { href, text });
+const steps = (items) => el('ol', {}, items.map((it) => el('li', {}, it)));
+const bullets = (items) => el('ul', {}, items.map((it) => el('li', {}, it)));
+
+const IMAGE_ROWS = [
+  ['Product photos', 'Tall (4:5)', '1600 x 2000 pixels', 'Frame every photo of the same product the same way, or the gallery jumps around.'],
+  ['Category tile (homepage)', 'Tall (4:5)', '1600 x 2000 pixels', 'Keep the subject centred.'],
+  ['Journal cover / editorial / collection banner', 'Wide (16:10)', '2000 x 1250 pixels', 'The top and bottom get trimmed on phones — keep the important part in the middle.'],
+  ['Homepage main photo (hero)', 'Wide (about 5:3)', '2400 x 1500 pixels (at least 2000 wide)', 'The headline sits over the lower-left — leave that area calm, and keep the subject centred or to the right.'],
+];
+
+function imageTable() {
+  return el('div', { class: 'admin-table-wrap' }, [
+    el('table', { class: 'admin-table' }, [
+      el('caption', { class: 'visually-hidden', text: 'Best photo shape and size for each place a photo is used' }),
+      el('thead', {}, [
+        el('tr', {}, ['Photo type', 'Shape', 'Best size to upload', 'Watch out for'].map((c) => el('th', { scope: 'col', text: c }))),
+      ]),
+      el('tbody', {}, IMAGE_ROWS.map((row) => el('tr', {}, [
+        el('th', { scope: 'row', text: row[0] }),
+        el('td', { text: row[1] }),
+        el('td', { text: row[2] }),
+        el('td', { text: row[3] }),
+      ]))),
+    ]),
+  ]);
+}
+
+const SECTIONS = [
+  {
+    id: 'getting-started',
+    title: 'Getting started',
+    body: () => [
+      p(['Sign in on the ', lnk('/admin/signin.html', 'admin sign-in page'), ' with your email and password. Forgotten it? Ask your developer to reset it — there is no self-service reset for admin yet.']),
+      p('Adding other staff logins is not in this version yet. If you need another admin account, ask your developer.'),
+      p('The left menu is how you move around.'),
+      p('Start each day on the Dashboard. It is your morning check:'),
+      bullets(['new orders', 'orders to pack', 'unpaid pay-on-delivery orders', 'low stock', 'reviews waiting', 'unread messages']),
+    ],
+  },
+  {
+    id: 'adding-a-product',
+    title: 'Adding a product',
+    body: () => [
+      steps([
+        'Open Products, then click "Add product".',
+        'Basics: type the name (the web address fills in by itself). Pick a Category and a Subcategory. Write a short description — one or two lines, it shows under the title. Then fill the longer "Story", the Care instructions, and a few Spec lines (Material, Fit, Origin, and so on).',
+        'Photos: drag them in. Give each one a short Alt text — describe what is in the photo. This helps blind shoppers and it helps Google. Click the star on the photo you want as the main one. The system shrinks and tidies every photo for you.',
+        'Variants: set your options — for example Colour: Tan, Black and Size: S, M, L. The form makes a row for every combination. On each row fill in the SKU (your own code), the Price, the "Compare at" price (only if the piece is on sale — this shows the crossed-out old price), the Stock count, the Low-stock alert number, and pick which photo goes with that row.',
+        'SEO: the title and description fill in from what you typed. Tweak them if you like.',
+        'Click "Save as draft". The product is saved but it is not on the shop yet.',
+        'Click "Preview" to see exactly how the product page will look, phone size included.',
+        'When it looks right, click "Publish". It appears on the shop within about 2 minutes. Your admin screens update straight away.',
+      ]),
+    ],
+  },
+  {
+    id: 'photo-sizes',
+    title: 'Photo sizes and framing',
+    body: () => [
+      p('This one matters for keeping the shop looking tidy.'),
+      p('The site shows every photo in a fixed shape and crops it to fit. So the shape of the photo matters more than the file size.'),
+      imageTable(),
+      h3('A few notes'),
+      bullets([
+        'Upload JPG or PNG, up to 15 MB. Anything bigger is rejected.',
+        'Anything smaller than about three-quarters of the sizes above will look soft.',
+        'You do not need to compress or resize photos yourself — just crop to the right shape.',
+      ]),
+    ],
+  },
+  {
+    id: 'changing-a-product',
+    title: 'Changing or removing a product',
+    body: () => [
+      h3('To change something'),
+      p('Open Products, click the product, change what you need, then click Save. On a live product, price and stock changes show within about 2 minutes.'),
+      h3('To take something off the shop'),
+      p('Open it and set the status to Archived. Do not delete it. Archived hides the piece from the shop and from search, but keeps it in past orders and reports.'),
+      p('"Draft" means not published yet. "Published" means live.'),
+      p('Never hard-delete a product that has been ordered. Archive it.'),
+    ],
+  },
+  {
+    id: 'stock',
+    title: 'Stock',
+    body: () => [
+      p('The Inventory page shows every variant and its stock.'),
+      p('To change a count, click "Record adjustment" and pick a reason: Restock, Correction, Damage, or Return to stock. This keeps a history, so you can always see what happened.'),
+      p('When something comes back into stock — from 0 to any number — customers who asked to be notified get an email automatically.'),
+    ],
+  },
+  {
+    id: 'sales-and-discounts',
+    title: 'Putting something on sale, and discount codes',
+    body: () => [
+      h3('A simple markdown'),
+      p('Edit the variant and set a "Compare at" price that is higher than the price. The shop then shows the old price crossed out and "Save KES X".'),
+      h3('Coupon codes'),
+      p('Open Discount codes and create a code — percent off, a fixed amount off, or free delivery. Set the minimum spend, the usage limit, and the start and end dates.'),
+    ],
+  },
+  {
+    id: 'orders',
+    title: 'Orders',
+    body: () => [
+      p('The Orders page lists everything. Filter by status. Open an order to see the items, the address, the payment method and state, and the terms the customer accepted (kept as a record).'),
+      h3('To send an order out'),
+      p('Set the status to Dispatched, enter the courier and the tracking number (both required), and leave "notify customer" switched on.'),
+      h3('Pay on delivery'),
+      p('When the rider has been paid, open the order, click "Update payment", and mark it Paid with the M-Pesa reference.'),
+      h3('Refunds'),
+      p('Open the order, click Refund, and enter the amount, the reason, and the M-Pesa reference of the payout you have already sent. Tick "restock" if the item is coming back. The system records the refund — it does not move any money. You send the M-Pesa payout yourself.'),
+    ],
+  },
+  {
+    id: 'reviews',
+    title: 'Reviews',
+    body: () => [
+      p('On the Reviews page, approve or reject each waiting review. Approved reviews show on the product page.'),
+    ],
+  },
+  {
+    id: 'categories-and-collections',
+    title: 'Categories and collections',
+    body: () => [
+      p('Manage your top categories and subcategories here — name, image, description, and order.'),
+      p('Collections are curated groups. "New Arrivals" fills itself from recent publish dates. A manual collection has a hand-picked, ordered list of products.'),
+    ],
+  },
+  {
+    id: 'new-arrivals-email',
+    title: 'The new-arrivals email',
+    body: () => [
+      p('Open Subscribers & broadcasts, then compose: a subject, an intro line, pick the products, and choose the audience.'),
+      p([el('strong', { text: 'Always click "Send test" to yourself first.' }), ' Check it. Then Send.']),
+    ],
+  },
+  {
+    id: 'homepage-content',
+    title: 'Homepage content',
+    body: () => [
+      p('In the Homepage content editor you can change the announcement bar text, the main photo with its headline and button, the two editorial blocks, the featured collection, and the social links.'),
+    ],
+  },
+  {
+    id: 'legal-documents',
+    title: 'Legal documents',
+    body: () => [
+      p('Terms of Sale, Privacy, and Returns live here. When you edit one and click "Publish new version", the version number goes up. Past versions stay on file for the orders that accepted them.'),
+      p('These documents are what customers must accept at checkout, so change them carefully.'),
+    ],
+  },
+  {
+    id: 'contact-messages',
+    title: 'Contact messages',
+    body: () => [
+      p('Messages from the Contact form arrive here. Open one, read it, and reply to the customer by email — their address is shown. Then mark it "Handled". The number on the Dashboard is how many are still unhandled.'),
+    ],
+  },
+  {
+    id: 'good-habits',
+    title: 'Good habits',
+    body: () => [
+      bullets([
+        'Publishing takes about 2 minutes to show on the shop.',
+        'Always Archive, never delete.',
+        'Every stock change needs a reason.',
+        'Test every broadcast before you send it.',
+        'Check the Dashboard every day.',
+        'Keep the photos of one product framed the same way every time.',
+      ]),
+    ],
+  },
+];
+
+start();
+
+async function start() {
+  const shell = await adminShell('guide', "Shop owner's guide");
+  if (!shell) return;
+  const { content } = shell;
+
+  const guide = el('div', { class: 'guide' }, [
+    p('A plain-language walk-through of everything in this admin. No jargon. Jump to what you need.'),
+    el('nav', { class: 'guide__contents', 'aria-label': 'On this page' }, [
+      el('h2', { text: 'On this page' }),
+      el('ol', {}, SECTIONS.map((s) => el('li', {}, [lnk(`#${s.id}`, s.title)]))),
+    ]),
+    ...SECTIONS.map((s) =>
+      el('section', { id: s.id, 'aria-labelledby': `${s.id}-h` }, [
+        el('h2', { id: `${s.id}-h`, text: s.title }),
+        ...s.body(),
+      ])
+    ),
+  ]);
+
+  content.append(guide);
+}

@@ -16,6 +16,7 @@ const NAV = [
   ['content', 'Homepage content', '/admin/content.html'],
   ['legal', 'Legal documents', '/admin/legal.html'],
   ['discounts', 'Discount codes', '/admin/discounts.html'],
+  ['guide', 'Guide', '/admin/guide.html'],
 ];
 
 export function adminView() {

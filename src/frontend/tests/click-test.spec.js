@@ -647,6 +647,53 @@ test.describe('admin', () => {
     await expect(page.locator('#c-handled')).toHaveValue('false');
   });
 
+  test("SHOP OWNER'S GUIDE: renders behind the admin gate, one h1, nav link lands here, image table + contents anchors resolve", async ({ page }) => {
+    await installMockApi(page, { admin: false });
+    const errors = trackErrors(page);
+
+    // gated exactly like the other admin pages: no session -> bounced to sign in
+    await page.goto('/admin/guide.html');
+    await expect(page).toHaveURL(/admin\/signin\.html\?next=/);
+
+    // sign in, land back on the guide
+    await page.fill('#a-email', 'esther@houseofesther.co.ke');
+    await page.fill('#a-password', 'correct horse battery staple');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/admin\/guide\.html/);
+
+    // and it is reachable from the sidebar nav (last item)
+    const navLink = page.locator('.admin-sidebar').getByRole('link', { name: 'Guide' });
+    await expect(navLink).toBeVisible();
+    await navLink.click();
+    await expect(page).toHaveURL(/admin\/guide\.html/);
+
+    // exactly one h1, and it is the guide title
+    await expect(page.locator('#main h1, .admin-main h1')).toHaveCount(1);
+    await expect(page.locator('.admin-main h1')).toHaveText("Shop owner's guide");
+
+    // the image-size reference is a real <table> with the four rows
+    const table = page.locator('.guide table');
+    await expect(table).toHaveCount(1);
+    await expect(table.locator('thead th')).toHaveText(['Photo type', 'Shape', 'Best size to upload', 'Watch out for']);
+    await expect(table.locator('tbody tr')).toHaveCount(4);
+
+    // every contents anchor points at a real section id
+    const contents = page.locator('nav[aria-label="On this page"] a');
+    const count = await contents.count();
+    expect(count).toBeGreaterThan(10);
+    const hrefs = await contents.evaluateAll((els) => els.map((a) => a.getAttribute('href')));
+    for (const href of hrefs) {
+      expect(href).toMatch(/^#[a-z-]+$/);
+      await expect(page.locator(`section#${href.slice(1)}`)).toHaveCount(1);
+    }
+
+    // the first contents link jumps to its section
+    await contents.first().click();
+    await expect(page).toHaveURL(new RegExp(`${hrefs[0]}$`));
+
+    expect(errors).toEqual([]);
+  });
+
   test('JOURNEY 4 (partial): admin order detail -> dispatch + agreement panel', async ({ page }) => {
     await installMockApi(page, { admin: true });
     await page.goto('/admin/order.html?order=HE-2026-04903');
@@ -666,7 +713,7 @@ test.describe('admin', () => {
     await installMockApi(page, { admin: true });
     const errors = trackErrors(page);
     await page.goto('/admin/');
-    const links = ['Products', 'Inventory', 'Orders', 'Reviews', 'Contact messages', 'Collections & categories', 'Subscribers & broadcasts', 'Homepage content', 'Legal documents', 'Discount codes'];
+    const links = ['Products', 'Inventory', 'Orders', 'Reviews', 'Contact messages', 'Collections & categories', 'Subscribers & broadcasts', 'Homepage content', 'Legal documents', 'Discount codes', 'Guide'];
     for (const name of links) {
       await page.locator('.admin-sidebar').getByRole('link', { name }).click();
       await expect(page.locator('.admin-main h1')).toBeVisible();
