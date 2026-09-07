@@ -2,51 +2,84 @@
   "Development / demo seed data. Run with:  clojure -X:seed
    Requires SEED_ADMIN_PASSWORD in the environment — no secrets are hardcoded.
 
-   IMAGES: every image below is a NEUTRAL PLACEHOLDER. The URLs match the
-   production CDN shape (cdn.houseofesther.co.ke/...) but do not resolve to a
-   real photo. Do NOT treat these as real product photography — see the
-   backend README for the list of items that still need a real, category-matched
-   image before launch."
+   IMAGES: real photographs sourced from Pexels (Pexels License — free for
+   commercial use, no attribution required). Per-image source page, photographer
+   and licence are recorded in brand/seed-images/CREDITS.md; real dimensions and
+   byte sizes come from brand/seed-images/manifest.json. The files themselves are
+   deployed into the frontend static build and served from
+   `{CDN_BASE_URL}/seed/{id}-{800|2000}.jpg` — CDN_BASE_URL is read from config
+   so staging/prod can point at their own origin. A few products deliberately
+   reuse another product's image id (e.g. the draft Nia jacket -> img_sena1);
+   those now resolve to a real photo."
   (:require [buddy.hashers :as hashers]
             [clojure.tools.logging :as log]
             [house-of-esther.config :as config]
             [house-of-esther.db :as db]
             [house-of-esther.migrate :as migrate]))
 
-(def ^:private cdn "https://cdn.houseofesther.co.ke")
-
-(defn- img! [conn id alt w h]
+(defn- img! [conn cdn {:keys [id alt width height full-bytes thumb-bytes]}]
+  ;; upsert: re-seeding refreshes alt / dimensions / byte sizes when seed images
+  ;; are re-sourced, without a full DB reset. URLs are derived from id + cdn.
   (db/exec! conn ["insert into images (id, alt, thumb_url, full_url, width, height, thumb_bytes, full_bytes)
                    values (?,?,?,?,?,?,?,?)
-                   on conflict (id) do nothing"
+                   on conflict (id) do update set
+                     alt = excluded.alt,
+                     thumb_url = excluded.thumb_url,
+                     full_url = excluded.full_url,
+                     width = excluded.width,
+                     height = excluded.height,
+                     thumb_bytes = excluded.thumb_bytes,
+                     full_bytes = excluded.full_bytes"
                   id alt
-                  (str cdn "/seed/" id "-800.webp")
-                  (str cdn "/seed/" id "-2000.webp")
-                  w h 42000 240000]))
+                  (str cdn "/seed/" id "-800.jpg")
+                  (str cdn "/seed/" id "-2000.jpg")
+                  width height thumb-bytes full-bytes]))
 
 (def ^:private images
-  ;; id, alt, width, height  — PLACEHOLDERS, need real photos
-  [["img_hero1"  "Model in a linen co-ord walking a Nairobi street at golden hour" 2000 1200]
-   ["img_cat_women"     "Flat lay of neutral-tone women's workwear" 800 1000]
-   ["img_cat_accessories" "Tan leather bags arranged on a bench" 800 1000]
-   ["img_cat_home"      "Woven throw and ceramic mug on a wooden stool" 800 1000]
-   ["img_ed1" "Editorial: layering for the in-between season" 2000 1400]
-   ["img_ed2" "Editorial: the leather edit" 2000 1400]
-   ["img_orin1" "Orin linen dress, front view" 2000 2500]
-   ["img_orin2" "Orin linen dress, back view" 2000 2500]
-   ["img_harlan1" "Harlan leather crossbody, front" 2000 2500]
-   ["img_harlan2" "Harlan leather crossbody, worn" 2000 2500]
-   ["img_maren1" "Maren wide-leg trousers, full length" 2000 2500]
-   ["img_sena1" "Sena ribbed knit top, front" 2000 2500]
-   ["img_ada1" "Ada shirt dress in olive" 2000 2500]
-   ["img_kito1" "Kito woven tote, natural" 2000 2500]
-   ["img_lulu1" "Lulu gold hoop earrings" 2000 2500]
-   ["img_taza1" "Taza handwoven throw, oat" 2000 2500]
-   ["img_j_sept" "September edit cover" 2000 1200]
-   ["img_j_leather" "Caring for leather cover" 2000 1200]
-   ["img_j_sizing" "Honest sizing cover" 2000 1200]
-   ["img_col_workwear" "Workwear collection hero" 2000 1000]
-   ["img_col_new" "New arrivals collection hero" 2000 1000]])
+  ;; Real values from brand/seed-images/manifest.json (Pexels; see CREDITS.md).
+  ;; Model/lifestyle shots feature Black / African models (Nairobi customer base).
+  [{:id "img_orin1"           :width 1600 :height 2000 :full-bytes 250392 :thumb-bytes 36685
+    :alt "Orin Linen Dress, front view - a Black woman in an olive-toned linen button-front dress stands beside a studio garment rail of linen pieces, soft natural light."}
+   {:id "img_orin2"           :width 1600 :height 2000 :full-bytes 296830 :thumb-bytes 49240
+    :alt "Orin Linen Dress, side view - the same olive linen dress seen from a three-quarter angle as the seated model considers a linen shirt on a hanger, sleeve detail and drape visible."}
+   {:id "img_harlan1"         :width 1900 :height 1266 :full-bytes 287967 :thumb-bytes 58525
+    :alt "Harlan Leather Crossbody in tan - the bag photographed on a woven rattan chair outdoors, adjustable strap and knot detail."}
+   {:id "img_harlan2"         :width 1600 :height 2000 :full-bytes 163150 :thumb-bytes 27103
+    :alt "Harlan Leather Bag in tan, worn - a Black woman in a black jumpsuit carries the tan leather bag in her hand against a warm sand-toned backdrop, mid-stride."}
+   {:id "img_maren1"          :width 1600 :height 2000 :full-bytes 103242 :thumb-bytes 21398
+    :alt "Maren Wide-Leg Trousers, full length - a Black woman wears the tan high-waisted wide-leg trousers with a matching blazer against a clean grey studio backdrop."}
+   {:id "img_sena1"           :width 1600 :height 2000 :full-bytes 268902 :thumb-bytes 51769
+    :alt "Sena Knit Top - a Black woman in a soft oat-coloured knit turtleneck, backlit by golden hour light, close warm-toned crop."}
+   {:id "img_ada1"            :width 1333 :height 2000 :full-bytes 296833 :thumb-bytes 56440
+    :alt "Ada Shirt Dress in olive - a belted olive utility shirt dress mid-movement in front of a pale stone building."}
+   {:id "img_kito1"           :width 2000 :height 1334 :full-bytes 182070 :thumb-bytes 24002
+    :alt "Kito Woven Tote - two natural handwoven straw totes on a warm peach background with a sprig of dried flowers."}
+   {:id "img_lulu1"           :width 1333 :height 2000 :full-bytes 278273 :thumb-bytes 37039
+    :alt "Lulu Gold Hoops - a pair of twisted gold hoop earrings resting on warm tan paper."}
+   {:id "img_taza1"           :width 1333 :height 2000 :full-bytes 280610 :thumb-bytes 50278
+    :alt "Taza Handwoven Throw - folded oat and cream knit throws stacked on a wooden stool against a muted grey-green backdrop."}
+   {:id "img_cat_women"       :width 1600 :height 2000 :full-bytes 288457 :thumb-bytes 42295
+    :alt "Women's collection - a Black woman in an olive linen dress leans on a garment rack hung with linen pieces in a softly lit studio."}
+   {:id "img_cat_accessories" :width 1600 :height 2000 :full-bytes 283560 :thumb-bytes 54742
+    :alt "Accessories collection - a tan croc-textured leather tote on a pedestal against a soft dusty-pink backdrop with dried flowers."}
+   {:id "img_cat_home"        :width 1200 :height 1800 :full-bytes 285991 :thumb-bytes 58759
+    :alt "Home collection - a rattan hanging chair layered with a knit throw and cushions on a patterned rug."}
+   {:id "img_hero1"           :width 2000 :height 1200 :full-bytes 204261 :thumb-bytes 39173
+    :alt "A Black woman in a cream jacket over a rust knit walks a city street mid-stride, soft daylight, editorial street style."}
+   {:id "img_ed1"             :width 2000 :height 1300 :full-bytes 246874 :thumb-bytes 46591
+    :alt "Editorial: in-between season layering - a Black woman in an oversized oat knit cardigan on an autumn woodland path strewn with fallen leaves."}
+   {:id "img_ed2"             :width 2000 :height 1250 :full-bytes 295650 :thumb-bytes 43830
+    :alt "Editorial: leather goods - a Black woman in a cream blazer holds a tan leather portfolio under her arm on a transit platform."}
+   {:id "img_j_sept"          :width 2000 :height 1300 :full-bytes 267923 :thumb-bytes 40870
+    :alt "Journal: autumn styling - a Black woman in a belted beige trench coat over a white ribbed turtleneck on a city street."}
+   {:id "img_j_leather"       :width 1720 :height 1150 :full-bytes 296208 :thumb-bytes 56659
+    :alt "Journal: leather care - a close-up of smooth tan leather showing grain, seam and strap detail."}
+   {:id "img_j_sizing"        :width 2000 :height 1300 :full-bytes 238082 :thumb-bytes 32840
+    :alt "Journal: fit and tailoring - a tailor's tape measure coiled on a dark work surface, warm side light."}
+   {:id "img_col_workwear"    :width 2000 :height 1000 :full-bytes 178456 :thumb-bytes 26450
+    :alt "Workwear collection - two Black women in tailored shirts and a leather waist belt on a pale studio backdrop."}
+   {:id "img_col_new"         :width 2000 :height 1000 :full-bytes 275964 :thumb-bytes 49651
+    :alt "New season collection - a Black woman in a white broderie dress stands among trees in warm, soft light."}])
 
 (defn- money [a] a)
 
@@ -218,7 +251,8 @@
    ["FREESHIP" "free_delivery" 0 5000 nil nil [] "2026-01-01T00:00:00Z" "2026-12-31T23:59:59Z" true]])
 
 (defn seed! [conn cfg]
-  (doseq [[id alt w h] images] (img! conn id alt w h))
+  (let [cdn (:cdn-base-url cfg)]
+    (doseq [im images] (img! conn cdn im)))
   (doseq [[slug label desc img parent ord] categories]
     (db/exec! conn ["insert into categories (slug, label, description, image_id, parent_slug, sort_order)
                      values (?,?,?,?,?,?) on conflict (slug) do nothing" slug label desc img parent ord]))

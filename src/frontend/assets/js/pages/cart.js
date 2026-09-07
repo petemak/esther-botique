@@ -9,6 +9,13 @@ bootStorefront({ active: '' });
 
 let zones = null;
 let lastQuote = null;
+// Chosen delivery location, kept at module scope so a re-render of the summary
+// (from add/remove/qty/discount, or from the quote itself) does not wipe the
+// county the shopper picked or the town they typed into the region picker.
+const pickedLocation = { county: '', town: '' };
+// Live refs to the two summary figures that depend on `lastQuote`, so `doQuote`
+// can update them in place instead of forcing a full cart re-render.
+let summaryRefs = { delivery: null, total: null };
 
 init();
 
@@ -127,7 +134,8 @@ function summary(cart) {
     : cart.estimatedDelivery != null
       ? formatMoney(cart.estimatedDelivery)
       : 'Enter location';
-  box.append(line('Estimated delivery', deliveryVal));
+  const deliveryValueEl = el('span', { id: 'sum-delivery', text: deliveryVal });
+  box.append(el('div', { class: 'summary-line' }, [el('span', { text: 'Estimated delivery' }), deliveryValueEl]));
 
   box.append(regionPicker());
   box.append(discountField(cart));
@@ -137,11 +145,15 @@ function summary(cart) {
     : cart.estimatedTotal != null
       ? formatMoney(cart.estimatedTotal)
       : formatMoney(cart.subtotal);
+  const totalValueEl = el('span', { id: 'sum-total', text: total });
   box.append(
-    el('div', { class: 'summary-line summary-line--total' }, [el('span', { text: 'Estimated total' }), el('span', { text: total })]),
+    el('div', { class: 'summary-line summary-line--total' }, [el('span', { text: 'Estimated total' }), totalValueEl]),
     el('p', { class: 'hint', text: 'Final delivery fee confirms at checkout.' }),
     el('a', { class: 'btn btn--block', href: '/checkout.html', text: 'Checkout' })
   );
+
+  // Hold refs so a fresh quote can rewrite just these two figures (see doQuote).
+  summaryRefs = { delivery: deliveryValueEl, total: totalValueEl };
   return box;
 }
 
@@ -162,16 +174,28 @@ function regionPicker() {
   const town = el('input', { class: 'input', id: 'cart-town', placeholder: 'Town / estate', 'aria-label': 'Town or estate' });
   const status = el('p', { class: 'hint', role: 'status' });
 
+  // Restore what the shopper already chose/typed — this builder runs on every
+  // summary re-render, so without this the field would snap back to empty.
+  county.value = pickedLocation.county;
+  town.value = pickedLocation.town;
+
   const doQuote = async () => {
     if (!county.value && !counties.length) county.value = 'Nairobi';
     if (!county.value) return;
+    // Persist the current field values before the async call so any re-render
+    // triggered while the quote is in flight keeps them.
+    pickedLocation.county = county.value;
+    pickedLocation.town = town.value.trim();
     status.textContent = 'Checking delivery…';
     try {
       lastQuote = await api.quote(county.value, town.value.trim() || undefined);
       const methods = (lastQuote.methods || []).map((m) => `${m.label} — ${formatMoney(m.fee)} (${m.eta})`).join('; ');
       const pod = (lastQuote.allowedPaymentMethods || []).includes('pay_on_delivery');
       status.textContent = `${methods}. ${pod ? 'Pay on delivery available here.' : 'Prepay with M-Pesa for this area.'}`;
-      renderCart(getCart());
+      // Targeted update of just the two figures that depend on the quote —
+      // no full re-render, so the county/town fields keep focus and value.
+      if (summaryRefs.delivery) summaryRefs.delivery.textContent = formatMoney(lastQuote.cart.deliveryFee);
+      if (summaryRefs.total) summaryRefs.total.textContent = formatMoney(lastQuote.cart.total);
     } catch (err) {
       lastQuote = null;
       status.textContent = err instanceof ApiError ? err.message : 'Could not check delivery for that location.';

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 160" fill="none" color="#4A1D42" role="img" aria-label="House of Esther">
+  <!-- Favicon / app-icon base. Single colour via CSS `color` (default Aubergine #4A1D42);
+       reversed = color:#F7F1F7 on an Aubergine field. -->
+  <title>House of Esther</title>
+  <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="14" stroke-linejoin="round"/>
+  <path fill="currentColor" d="M38 42 H96 V55 H60 V73 H84 V85 H60 V105 H98 V118 H38 V108 Q38 100 46 100 V60 Q38 60 38 52 Z M94 39 H99 V58 H94 Z M82 70 H87 V88 H82 Z M96 102 H101 V121 H96 Z"/>
+</svg>

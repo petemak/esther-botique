@@ -1,0 +1,14 @@
+.git
+.github
+target
+.cpcache
+.clj-kondo/.cache
+node_modules
+src/frontend
+test
+deploy
+dist
+*.md
+!src/backend/README.md
+.fly
+fly.toml

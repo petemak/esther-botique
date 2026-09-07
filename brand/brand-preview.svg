@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 700" font-family="Georgia, 'Times New Roman', serif">
+  <rect width="920" height="700" fill="#ffffff"/>
+  <text x="40" y="46" font-size="22" font-weight="700" fill="#241E24">House of Esther — brand direction (draft for approval)</text>
+  <text x="40" y="70" font-size="13" fill="#555">Jewel palette · Esther Plum + Emerald on Ivory · arch-and-E monogram</text>
+
+  <!-- ============ LOGO LOCKUPS ============ -->
+  <!-- on Ivory -->
+  <rect x="40" y="90" width="400" height="200" fill="#FBF6EF" stroke="#E7DED0"/>
+  <g transform="translate(140 96) scale(0.78)" color="#5A1E3C">
+    <g transform="translate(97 8) scale(0.9)">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+    <text x="160" y="205" text-anchor="middle" fill="currentColor" font-size="16" font-weight="500" letter-spacing="7.5">HOUSE OF</text>
+    <text x="160" y="250" text-anchor="middle" fill="currentColor" font-size="44" font-weight="600" letter-spacing="3">ESTHER</text>
+  </g>
+  <text x="240" y="308" text-anchor="middle" font-size="11" fill="#777">Plum on Ivory (default)</text>
+
+  <!-- reversed on Plum -->
+  <rect x="480" y="90" width="400" height="200" fill="#5A1E3C"/>
+  <g transform="translate(580 96) scale(0.78)" color="#FBF6EF">
+    <g transform="translate(97 8) scale(0.9)">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+    <text x="160" y="205" text-anchor="middle" fill="currentColor" font-size="16" font-weight="500" letter-spacing="7.5">HOUSE OF</text>
+    <text x="160" y="250" text-anchor="middle" fill="currentColor" font-size="44" font-weight="600" letter-spacing="3">ESTHER</text>
+  </g>
+  <text x="680" y="308" text-anchor="middle" font-size="11" fill="#777">Ivory on Plum (reverse)</text>
+
+  <!-- ============ MONOGRAM / FAVICON ============ -->
+  <text x="40" y="356" font-size="14" font-weight="700" fill="#241E24">Monogram / favicon</text>
+  <g>
+    <rect x="40" y="368" width="110" height="110" fill="#FBF6EF" stroke="#E7DED0"/>
+    <g transform="translate(64 384) scale(0.42)" color="#5A1E3C">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="14" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+  </g>
+  <g>
+    <rect x="170" y="368" width="110" height="110" fill="#5A1E3C"/>
+    <g transform="translate(194 384) scale(0.42)" color="#FBF6EF">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="14" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+  </g>
+  <g>
+    <rect x="300" y="368" width="110" height="110" fill="#5A1E3C"/>
+    <g transform="translate(324 384) scale(0.42)" color="#B08A46">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="14" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+  </g>
+  <text x="95"  y="496" text-anchor="middle" font-size="10" fill="#777">light UI</text>
+  <text x="225" y="496" text-anchor="middle" font-size="10" fill="#777">dark UI</text>
+  <text x="355" y="496" text-anchor="middle" font-size="10" fill="#777">gold / foil</text>
+
+  <!-- small favicon sizes -->
+  <rect x="300" y="368" width="0" height="0"/>
+  <g transform="translate(300 512)">
+    <rect x="0" y="0" width="32" height="32" fill="#FBF6EF" stroke="#E7DED0"/>
+    <g transform="translate(5.5 8) scale(0.14)" color="#5A1E3C">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="20" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+    <rect x="44" y="8" width="16" height="16" fill="#FBF6EF" stroke="#E7DED0"/>
+    <g transform="translate(46 12) scale(0.07)" color="#5A1E3C">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="26" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+  </g>
+  <text x="40" y="524" font-size="10" fill="#777">32 / 16 px</text>
+
+  <!-- ============ PALETTE ============ -->
+  <text x="480" y="356" font-size="14" font-weight="700" fill="#241E24">Palette</text>
+  <g font-size="11">
+    <rect x="480" y="368" width="130" height="70" fill="#5A1E3C"/>
+    <text x="480" y="454" fill="#241E24" font-weight="700">Esther Plum</text>
+    <text x="480" y="470" fill="#777">#5A1E3C · brand, nav, headings</text>
+
+    <rect x="622" y="368" width="130" height="70" fill="#0F5132"/>
+    <text x="622" y="454" fill="#241E24" font-weight="700">Emerald</text>
+    <text x="622" y="470" fill="#777">#0F5132 · CTAs, links, focus</text>
+
+    <rect x="764" y="368" width="116" height="70" fill="#FBF6EF" stroke="#E7DED0"/>
+    <text x="764" y="454" fill="#241E24" font-weight="700">Ivory</text>
+    <text x="764" y="470" fill="#777">#FBF6EF · page ground</text>
+
+    <rect x="480" y="486" width="130" height="60" fill="#241E24"/>
+    <text x="480" y="562" fill="#241E24" font-weight="700">Ink</text>
+    <text x="480" y="578" fill="#777">#241E24 · body text</text>
+
+    <rect x="622" y="486" width="130" height="60" fill="#B08A46"/>
+    <text x="622" y="562" fill="#241E24" font-weight="700">Antique Gold</text>
+    <text x="622" y="578" fill="#777">#B08A46 · accent, &lt;10%</text>
+
+    <rect x="764" y="486" width="116" height="60" fill="#E7DED0"/>
+    <text x="764" y="562" fill="#241E24" font-weight="700">Stone</text>
+    <text x="764" y="578" fill="#777">#E7DED0 · hairlines only</text>
+  </g>
+
+  <!-- ============ MINI HEADER MOCKUP ============ -->
+  <text x="40" y="604" font-size="14" font-weight="700" fill="#241E24">Header preview</text>
+  <g transform="translate(40 616)">
+    <rect x="0" y="0" width="840" height="60" fill="#FBF6EF" stroke="#E7DED0"/>
+    <g transform="translate(18 12) scale(0.16)" color="#5A1E3C">
+      <g transform="translate(97 8) scale(0.9)">
+        <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+        <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+      </g>
+    </g>
+    <text x="66" y="35" font-size="17" font-weight="600" letter-spacing="3" fill="#5A1E3C">ESTHER</text>
+    <text x="300" y="35" font-size="12" letter-spacing="1.5" fill="#241E24">WOMEN</text>
+    <text x="370" y="35" font-size="12" letter-spacing="1.5" fill="#241E24">ACCESSORIES</text>
+    <text x="480" y="35" font-size="12" letter-spacing="1.5" fill="#241E24">NEW IN</text>
+    <text x="548" y="35" font-size="12" letter-spacing="1.5" fill="#5A1E3C">SALE</text>
+    <rect x="710" y="16" width="112" height="28" rx="2" fill="#0F5132"/>
+    <text x="766" y="35" text-anchor="middle" font-size="12" letter-spacing="1" fill="#FBF6EF">SHOP NOW</text>
+  </g>
+</svg>

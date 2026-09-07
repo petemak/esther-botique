@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 132" fill="currentColor" color="#4A1D42" role="img" aria-label="House of Esther">
+  <!-- Header / app-bar / favicon monogram. Bold: solid arch silhouette with the E
+       reversed out (knockout). Single colour via CSS `color` (default Aubergine #4A1D42);
+       set color:#F7F1F7 (or #fff) when reversed on the Aubergine bar or over a scrimmed hero photo. -->
+  <title>House of Esther</title>
+  <path fill-rule="evenodd" d="M12 124 V56 A48 48 0 0 1 108 56 V124 Z M30 34 H86 V48 H44 V61 H74 V75 H44 V88 H88 V102 H30 Z"/>
+</svg>

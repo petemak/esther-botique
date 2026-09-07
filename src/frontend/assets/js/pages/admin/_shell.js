@@ -2,6 +2,7 @@ import { api, ApiError } from '../../api.js';
 import { el, clear, $ } from '../../dom.js';
 import { CONFIG } from '../../config.js';
 import { ensureAbsoluteCanonical } from '../../util.js';
+import { logoMonogram } from '../../logo.js';
 
 const NAV = [
   ['dashboard', 'Dashboard', '/admin/'],
@@ -48,18 +49,21 @@ export async function adminShell(activeKey, title) {
   clear(root).append(
     el('div', { class: 'admin-shell' }, [
       el('aside', { class: 'admin-sidebar' }, [
-        el('a', { class: 'brand', href: '/admin/', text: `${CONFIG.brand} · Admin` }),
+        el('a', { class: 'brand', href: '/admin/', 'aria-label': `${CONFIG.brand} Admin — home`, style: 'color:var(--color-bg)' }, [
+          logoMonogram('brand__mark'),
+          el('span', { class: 'brand__word', text: 'Esther Admin', 'aria-hidden': 'true' }),
+        ]),
         el('nav', { 'aria-label': 'Admin' }, [
           el('ul', {}, NAV.map(([key, label, href]) =>
             el('li', {}, [el('a', { href, text: label, 'aria-current': key === activeKey ? 'page' : null })])
           )),
         ]),
         el('p', { style: 'margin-top:2rem;font-size:var(--step--1)' }, [
-          el('a', { href: '/', target: '_blank', rel: 'noopener', style: 'color:var(--bone)', text: 'View storefront ↗' }),
+          el('a', { href: '/', target: '_blank', rel: 'noopener', style: 'color:var(--color-bg)', text: 'View storefront ↗' }),
         ]),
         el('button', {
           class: 'btn btn--small btn--secondary',
-          style: 'margin-top:1rem;border-color:var(--bone);color:var(--bone)',
+          style: 'margin-top:1rem;border-color:var(--color-bg);color:var(--color-bg)',
           text: 'Sign out',
           on: {
             click: async () => {

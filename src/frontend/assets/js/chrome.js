@@ -9,6 +9,7 @@ import { debounce } from './util.js';
 import { toast } from './toast.js';
 import { currentUser } from './auth.js';
 import { subscribeCart, cartCount, loadCart, mountCartDrawer, openCartDrawer } from './cart.js';
+import { brandLink, logoLockup } from './logo.js';
 
 const NAV = [
   { href: '/new-in.html', label: 'New In' },
@@ -17,12 +18,17 @@ const NAV = [
   { href: '/journal.html', label: 'Journal' },
 ];
 
-export function initChrome({ active } = {}) {
+export function initChrome({ active, transparentHeader } = {}) {
   ensureSkipLink();
   const header = buildHeader(active);
   const main = $('#main');
   document.body.insertBefore(header, document.body.firstChild);
   if (main) main.setAttribute('tabindex', '-1');
+
+  if (transparentHeader) {
+    document.body.classList.add('has-transparent-header');
+    header.classList.add('site-header--transparent');
+  }
 
   document.body.appendChild(buildFooter());
 
@@ -32,6 +38,32 @@ export function initChrome({ active } = {}) {
 
   hydrateAccountLink();
   loadAnnouncement();
+}
+
+/**
+ * Home only: watch a sentinel (a zero-height marker at the TOP of the hero content,
+ * before the eyebrow) and toggle the header between its transparent-over-photo state
+ * and the solid state. An IntersectionObserver with a top rootMargin equal to the
+ * header height fires exactly when the hero content's top edge reaches the header —
+ * so the eyebrow/headline/CTA always scroll under a solid header, never the
+ * transparent one. No scroll-position magic numbers.
+ */
+export function armHeaderScrollState(sentinel) {
+  const header = $('.site-header');
+  if (!header || !sentinel || typeof IntersectionObserver === 'undefined') return;
+
+  const arm = () => {
+    const headerH = Math.max(56, Math.round(header.getBoundingClientRect().height));
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        header.classList.toggle('is-solid', !entry.isIntersecting);
+      },
+      { rootMargin: `-${headerH}px 0px 0px 0px`, threshold: 0 }
+    );
+    obs.observe(sentinel);
+  };
+  // let the (async) announcement bar settle into the header height first
+  requestAnimationFrame(() => requestAnimationFrame(arm));
 }
 
 function ensureSkipLink() {
@@ -97,7 +129,7 @@ function buildHeader(active) {
   const bar = el('div', { class: 'site-header__bar wrap' }, [
     el('div', { style: 'display:flex;align-items:center;gap:.25rem' }, [
       menuToggle,
-      el('a', { class: 'brand', href: '/', text: CONFIG.brand }),
+      brandLink('/'),
     ]),
     el('nav', { class: 'primary-nav', 'aria-label': 'Primary' }, [navList]),
     el('div', { class: 'header-actions' }, [searchToggle, wishlistLink, accountLink, cartBtn]),
@@ -324,12 +356,13 @@ function buildFooter() {
 
   const newsletter = el('div', { class: 'footer-col' }, [
     el('h2', { text: 'New pieces, first' }),
-    el('p', { class: 'hint', style: 'color:var(--bone)', text: 'Be first to know when new stock lands. Double opt-in, no spam.' }),
+    el('p', { class: 'hint', style: 'color:var(--color-bg)', text: 'Be first to know when new stock lands. Double opt-in, no spam.' }),
     buildNewsletterForm(),
   ]);
 
   footer.appendChild(
     el('div', { class: 'wrap' }, [
+      el('a', { class: 'footer-brand', href: '/', 'aria-label': 'House of Esther — home' }, [logoLockup('footer-brand__mark')]),
       el('div', { class: 'footer-grid' }, [
         col('Shop', [
           ['New In', '/new-in.html'],
@@ -376,7 +409,7 @@ function buildNewsletterForm() {
     placeholder: 'you@example.com',
     id: 'footer-newsletter-email',
   });
-  const status = el('p', { class: 'hint', role: 'status', style: 'color:var(--bone)' });
+  const status = el('p', { class: 'hint', role: 'status', style: 'color:var(--color-bg)' });
   const form = el('form', {
     class: 'stack',
     novalidate: true,

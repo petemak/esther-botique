@@ -1,0 +1,54 @@
+# House of Esther — PRODUCTION backend (Clojure API).
+# Mirrors fly.toml (staging). Deploy with:
+#   fly deploy --config fly.prod.toml --remote-only --ha=false
+#
+# Frontend is hosted separately on Netlify's CDN edge and proxies /api/* here,
+# so the browser stays same-origin (the API client sends cookies with
+# credentials: 'same-origin', and CSRF/session/cart cookies are SameSite=Lax).
+#
+# Region: jnb (Johannesburg) — closest Fly region to the primary Kenya market.
+# Single region is fine to launch; worldwide audience -> multi-region read
+# replicas are the known scaling lever (see engineering-standards.md).
+
+app = "esther-botique-prod"
+primary_region = "jnb"
+
+[build]
+
+[env]
+  PORT = "8080"
+  RUN_MIGRATIONS_ON_START = "true"
+  SESSION_COOKIE_SECURE = "true"
+  TRUST_PROXY_HEADERS = "true"
+  MPESA_ENV = "stub"
+  APP_BASE_URL = "https://esther-botique.netlify.app"
+  # Seed/editorial image rows resolve to files served by the Netlify static
+  # build at {CDN_BASE_URL}/seed/{id}-{800|2000}.jpg. Point this at the real
+  # CDN/object-storage origin once that is wired (see manual checklist).
+  CDN_BASE_URL = "https://esther-botique.netlify.app"
+  DB_POOL_SIZE = "5"
+  SESSION_TTL_DAYS = "30"
+  JDK_JAVA_OPTIONS = "-XX:MaxRAMPercentage=70.0 -Dfile.encoding=UTF-8"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 180
+    hard_limit = 220
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/content/home"
+    interval = "15s"
+    timeout = "4s"
+    grace_period = "40s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

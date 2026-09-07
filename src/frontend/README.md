@@ -38,6 +38,37 @@ content. Admin modules render their own `.admin-shell` and re-check the admin se
 load (the server also re-checks the role on every `/api/admin/*` call — the UI gate is
 convenience only).
 
+## Brand (Orchid & Aubergine)
+
+- Palette is defined once as CSS custom properties in `assets/css/tokens.css`
+  (`--color-primary` Aubergine, `--color-cta` Orchid, `--color-bg` Orchid Mist,
+  `--color-text` Blackcurrant Ink, `--color-surface`, `--color-hairline` Mauve Grey,
+  `--color-danger` Ruby, `--color-accent` Antique Gold). Nothing hardcodes a brand hex.
+  (The one literal-hex map that remains — `pages/product.js` `colourHex` — is *garment*
+  swatch colours like "Tan"/"Navy", not theme colour.)
+- Logo is inlined from `assets/js/logo.js` (source SVGs also in `assets/img/`) so CSS
+  `color` recolours it: Aubergine in the header, reversed Orchid-Mist lockup in the
+  footer, reversed monogram in the admin sidebar.
+- Favicons are generated from the monogram: `assets/img/favicon.svg` (Aubergine field,
+  Orchid-Mist mark, ~16% padding) plus `favicon-16/32.png`, `apple-touch-icon.png`
+  (180), `icon-192.png`, `icon-512-maskable.png`, wired via `site.webmanifest` and the
+  `<head>` block in `tools/gen-pages.js`. Regenerate the PNGs with
+  `inkscape assets/img/favicon.svg -w N -h N -o out.png` if the mark changes.
+
+## Seed images
+
+Real photos live in the repo at `brand/seed-images/{id}-{2000,800}.jpg`. The backend
+returns image URLs as `{CDN_BASE_URL}/seed/{id}-{size}.jpg`, and both the deploy build
+and the dev server put those files at `/seed/` on the site origin:
+
+- `deploy/build-staging-frontend.sh` copies `brand/seed-images/*.jpg` → `dist/seed/` and
+  adds a hard cache header for `/seed/*`.
+- `tools/serve.js` maps `/seed/*` → `brand/seed-images/` so `npm run dev` shows photos
+  without a backend.
+
+`imageEl()` still falls back to the neutral SVG placeholder for a genuinely missing or
+broken image.
+
 ## Deploy notes (for the deployment engineer)
 
 - **Brand fonts.** `assets/css/fonts.css` declares `@font-face` for Fraunces + Inter but

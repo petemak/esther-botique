@@ -1,0 +1,17 @@
+{
+  "name": "House of Esther",
+  "short_name": "Esther",
+  "description": "Curated fashion boutique, delivered across Kenya.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F1F7",
+  "theme_color": "#4A1D42",
+  "icons": [
+    { "src": "/assets/img/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/assets/img/favicon-32.png", "type": "image/png", "sizes": "32x32" },
+    { "src": "/assets/img/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/assets/img/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" },
+    { "src": "/assets/img/icon-512-maskable.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

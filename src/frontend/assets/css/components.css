@@ -2,9 +2,10 @@
 
 /* ---------- Buttons ---------- */
 .btn {
-  --btn-bg: var(--ink-navy);
-  --btn-fg: var(--white);
-  --btn-bd: var(--ink-navy);
+  /* primary: Orchid fill, white label (design-spec §4) */
+  --btn-bg: var(--color-cta);
+  --btn-fg: var(--color-surface);
+  --btn-bd: var(--color-cta);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -25,32 +26,32 @@
   transition: background var(--transition), color var(--transition), opacity var(--transition);
 }
 .btn:hover {
-  background: var(--ink-navy-90);
-  color: var(--white);
+  background: var(--color-cta-hover);
+  color: var(--color-surface);
 }
 .btn--secondary {
   --btn-bg: transparent;
-  --btn-fg: var(--warm-clay-dark);
-  --btn-bd: var(--warm-clay-dark);
+  --btn-fg: var(--color-primary);
+  --btn-bd: var(--color-primary);
 }
 .btn--secondary:hover {
-  background: var(--warm-clay-dark);
-  color: var(--white);
+  background: var(--color-primary);
+  color: var(--color-surface);
 }
 .btn--ghost {
   --btn-bg: transparent;
-  --btn-fg: var(--ink-navy);
+  --btn-fg: var(--color-primary);
   --btn-bd: transparent;
   text-decoration: underline;
 }
 .btn--ghost:hover {
   background: transparent;
-  color: var(--warm-clay-dark);
+  color: var(--color-cta);
 }
 .btn--danger {
-  --btn-bg: var(--err);
-  --btn-fg: var(--white);
-  --btn-bd: var(--err);
+  --btn-bg: var(--color-danger);
+  --btn-fg: var(--color-surface);
+  --btn-bd: var(--color-danger);
 }
 .btn--block {
   width: 100%;
@@ -76,11 +77,11 @@
   border: 2px solid currentColor;
   border-top-color: transparent;
   border-radius: 50%;
-  color: var(--white);
+  color: var(--color-surface);
   animation: spin 0.7s linear infinite;
 }
 .btn--secondary.is-loading::after {
-  color: var(--warm-clay-dark);
+  color: var(--color-primary);
 }
 @keyframes spin {
   to {
@@ -101,7 +102,7 @@
   margin-bottom: var(--space-3xs);
 }
 .field .req {
-  color: var(--warm-clay-dark);
+  color: var(--color-danger);
 }
 .field .hint {
   font-size: var(--step--1);
@@ -119,7 +120,7 @@
 .textarea {
   width: 100%;
   padding: 0.6rem 0.7rem;
-  background: var(--white);
+  background: var(--color-surface);
   border: 1.5px solid var(--hairline);
   border-radius: var(--radius);
   color: var(--text);
@@ -127,7 +128,7 @@
 .input:focus,
 .select:focus,
 .textarea:focus {
-  border-color: var(--ink-navy);
+  border-color: var(--color-cta);
   outline-offset: 1px;
 }
 .textarea {
@@ -152,7 +153,7 @@
   width: 1.1rem;
   height: 1.1rem;
   flex: none;
-  accent-color: var(--ink-navy);
+  accent-color: var(--color-cta);
 }
 .fieldset {
   border: 0;
@@ -177,7 +178,7 @@
 
 /* ---------- Card surfaces ---------- */
 .card {
-  background: var(--white);
+  background: var(--color-surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-m);
@@ -204,7 +205,7 @@
   position: relative; /* positioning context for the whole-card link overlay */
   display: flex;
   flex-direction: column;
-  background: var(--white);
+  background: var(--color-surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
 }
@@ -212,7 +213,7 @@
   /* deliberately NOT positioned — see productCard() comment on the stacking-context gotcha */
   aspect-ratio: 4 / 5;
   overflow: hidden;
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
 }
 .product-card__media img {
   width: 100%;
@@ -229,7 +230,7 @@
   font-family: var(--font-ui);
   font-size: var(--step-0);
   font-weight: 600;
-  color: var(--ink-navy);
+  color: var(--color-primary);
 }
 .product-card__link::after {
   content: "";
@@ -262,12 +263,12 @@
   border-radius: 2px;
 }
 .tag--new {
-  background: var(--brass);
-  color: var(--ink-navy);
+  background: var(--color-accent);
+  color: var(--color-primary);
 }
 .tag--sale {
-  background: var(--warm-clay-dark);
-  color: var(--white);
+  background: var(--color-danger);
+  color: var(--color-surface);
 }
 .product-card__tags {
   position: absolute;
@@ -292,8 +293,8 @@
   z-index: 2;
 }
 .wishlist-toggle[aria-pressed="true"] {
-  background: var(--warm-clay-dark);
-  color: var(--white);
+  background: var(--color-cta);
+  color: var(--color-surface);
 }
 
 /* ---------- Price block ---------- */
@@ -306,17 +307,17 @@
 }
 .price__current {
   font-weight: 700;
-  color: var(--ink-navy);
+  color: var(--color-primary);
 }
 .price__was {
   text-decoration: line-through;
-  color: var(--text-muted);
+  color: var(--color-danger);
   font-size: var(--step--1);
 }
 .price__save {
   font-size: var(--step--1);
   font-weight: 700;
-  color: var(--warm-clay-dark);
+  color: var(--color-danger);
 }
 
 /* ---------- Swatches / variant selector ---------- */
@@ -348,19 +349,21 @@
   min-width: 2.75rem;
   min-height: 2.5rem;
   padding: 0.35rem 0.7rem;
-  background: var(--white);
+  background: var(--color-surface);
   border: 1.5px solid var(--hairline);
   border-radius: var(--radius);
   cursor: pointer;
   font-size: var(--step--1);
 }
 .option-btn[aria-pressed="true"] {
-  border-color: var(--ink-navy);
-  background: var(--ink-navy);
-  color: var(--white);
+  border-color: var(--color-cta);
+  background: var(--color-cta);
+  color: var(--color-surface);
 }
 .option-btn[disabled] {
-  opacity: 0.4;
+  background: var(--color-hairline);
+  border-color: var(--color-hairline);
+  color: var(--text-muted);
   cursor: not-allowed;
   text-decoration: line-through;
 }
@@ -382,7 +385,7 @@
   position: relative;
 }
 .option-swatch[aria-pressed="true"] {
-  box-shadow: 0 0 0 2px var(--white), 0 0 0 4px var(--ink-navy);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-cta);
 }
 
 /* ---------- Quantity stepper ---------- */
@@ -391,7 +394,7 @@
   align-items: center;
   border: 1.5px solid var(--hairline);
   border-radius: var(--radius);
-  background: var(--white);
+  background: var(--color-surface);
 }
 .qty button {
   width: 2.5rem;
@@ -430,6 +433,13 @@
   border-radius: 50%;
   background: currentColor;
 }
+/* No message yet (e.g. before a variant is chosen) — hide the bullet entirely. */
+.stock-cue:empty {
+  display: none;
+}
+.stock-cue:empty::before {
+  content: none;
+}
 .stock-cue--in {
   color: var(--ok);
 }
@@ -437,7 +447,7 @@
   color: var(--warn);
 }
 .stock-cue--out {
-  color: var(--err);
+  color: var(--color-primary);
 }
 
 /* ---------- Breadcrumb ---------- */
@@ -461,7 +471,7 @@
   color: var(--text-muted);
 }
 .breadcrumb [aria-current="page"] {
-  color: var(--ink-navy);
+  color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -472,7 +482,7 @@
   position: relative;
   font-size: 1rem;
   line-height: 1;
-  color: var(--brass-dark);
+  color: var(--color-cta);
   letter-spacing: 0.1em;
 }
 .stars::before {
@@ -498,7 +508,7 @@
 .rating-input input:checked ~ label,
 .rating-input label:hover,
 .rating-input label:hover ~ label {
-  color: var(--brass-dark);
+  color: var(--color-cta);
 }
 .rating-input input:focus-visible + label {
   outline: 2px solid var(--focus-ring);
@@ -536,13 +546,13 @@
 }
 .dist-bar__track {
   height: 0.5rem;
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
   border-radius: 999px;
   overflow: hidden;
 }
 .dist-bar__fill {
   height: 100%;
-  background: var(--brass);
+  background: var(--color-accent);
 }
 
 /* ---------- Toast / inline alert ---------- */
@@ -557,8 +567,8 @@
   max-width: min(24rem, calc(100vw - 2rem));
 }
 .toast {
-  background: var(--ink-navy);
-  color: var(--white);
+  background: var(--color-primary);
+  color: var(--color-surface);
   padding: var(--space-2xs) var(--space-s);
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
@@ -578,23 +588,23 @@
 }
 .alert--error {
   border-color: var(--err);
-  background: #fbecec;
-  color: #7a1e20;
+  background: var(--color-tint-danger);
+  color: #7a1220;
 }
 .alert--warning {
-  border-color: var(--warn);
-  background: #fbf3e6;
+  border-color: var(--color-accent);
+  background: var(--color-tint-gold);
   color: #6b451a;
 }
 .alert--success {
   border-color: var(--ok);
-  background: #e9f3ee;
-  color: #1f5138;
+  background: var(--color-tint-cta);
+  color: #5a1f4f;
 }
 .alert--info {
   border-color: var(--info);
-  background: #eaf0f8;
-  color: #21375c;
+  background: var(--color-tint-cta);
+  color: var(--color-primary);
 }
 
 /* ---------- Modal / lightbox ---------- */
@@ -604,7 +614,7 @@ dialog.modal {
   padding: 0;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--bone);
+  background: var(--color-bg);
   color: var(--text);
   overflow: auto;
 }
@@ -620,7 +630,7 @@ dialog.modal::backdrop {
   border-bottom: 1px solid var(--hairline);
   position: sticky;
   top: 0;
-  background: var(--bone);
+  background: var(--color-bg);
 }
 .modal__body {
   padding: var(--space-m);
@@ -657,7 +667,7 @@ dialog.lightbox::backdrop {
 .lightbox__bar button {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.5);
-  color: var(--white);
+  color: var(--color-surface);
   border-radius: var(--radius);
   padding: var(--space-3xs) var(--space-2xs);
   cursor: pointer;
@@ -668,7 +678,7 @@ dialog.lightbox::backdrop {
   position: fixed;
   inset: 0 0 0 auto;
   width: min(26rem, 100vw);
-  background: var(--bone);
+  background: var(--color-bg);
   box-shadow: var(--shadow-2);
   z-index: 250;
   transform: translateX(100%);
@@ -723,7 +733,7 @@ dialog.lightbox::backdrop {
 }
 .line-item__media {
   aspect-ratio: 4 / 5;
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
   border-radius: var(--radius);
   overflow: hidden;
 }
@@ -756,8 +766,8 @@ dialog.lightbox::backdrop {
   width: 0.9rem;
   height: 0.9rem;
   border-radius: 50%;
-  border: 2px solid var(--brass-dark);
-  background: var(--bone);
+  border: 2px solid var(--color-cta);
+  background: var(--color-bg);
   margin-top: 0.3rem;
 }
 .timeline li:not(:last-child)::after {
@@ -770,11 +780,11 @@ dialog.lightbox::backdrop {
   background: var(--hairline);
 }
 .timeline li.is-done::before {
-  background: var(--brass-dark);
+  background: var(--color-cta);
 }
 .timeline li.is-current::before {
-  background: var(--ink-navy);
-  border-color: var(--ink-navy);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(27, 42, 74, 0.15);
 }
 .timeline__label {
@@ -806,7 +816,7 @@ dialog.lightbox::backdrop {
   flex: none;
   width: 1.5rem;
   height: 1.5rem;
-  color: var(--brass-dark);
+  color: var(--color-cta);
 }
 
 /* ---------- Pagination ---------- */
@@ -828,12 +838,12 @@ dialog.lightbox::backdrop {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   text-decoration: none;
-  color: var(--ink-navy);
+  color: var(--color-primary);
   padding-inline: var(--space-2xs);
 }
 .pagination [aria-current="page"] {
-  background: var(--ink-navy);
-  color: var(--white);
+  background: var(--color-primary);
+  color: var(--color-surface);
 }
 
 /* ---------- Chips ---------- */
@@ -846,8 +856,8 @@ dialog.lightbox::backdrop {
   display: inline-flex;
   align-items: center;
   gap: var(--space-3xs);
-  background: var(--white);
-  border: 1px solid var(--brass-dark);
+  background: var(--color-surface);
+  border: 1px solid var(--color-cta);
   border-radius: 999px;
   padding: 0.2rem 0.7rem;
   font-size: var(--step--1);
@@ -888,7 +898,7 @@ dialog.lightbox::backdrop {
 
 /* ---------- Loading / skeleton / empty ---------- */
 .skeleton {
-  background: linear-gradient(90deg, var(--bone-dark), #f0e9dc, var(--bone-dark));
+  background: linear-gradient(90deg, var(--color-bg-sink), #f4ecf4, var(--color-bg-sink));
   background-size: 200% 100%;
   animation: shimmer 1.3s infinite;
   border-radius: var(--radius);
@@ -909,7 +919,7 @@ dialog.lightbox::backdrop {
   width: 2rem;
   height: 2rem;
   border: 3px solid var(--hairline);
-  border-top-color: var(--ink-navy);
+  border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin: var(--space-l) auto;

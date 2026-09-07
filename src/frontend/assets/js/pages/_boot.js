@@ -1,4 +1,4 @@
-import { initChrome } from '../chrome.js';
+import { initChrome, armHeaderScrollState } from '../chrome.js';
 import { $, mount, clear } from '../dom.js';
 import { errorState } from '../components.js';
 import { setPageMeta, ensureAbsoluteCanonical } from '../util.js';
@@ -36,8 +36,10 @@ export function showSpinner() {
 }
 
 /** Standard storefront page boot: chrome + optional meta. */
-export function bootStorefront({ active, meta } = {}) {
+export function bootStorefront({ active, meta, transparentHeader } = {}) {
   ensureAbsoluteCanonical();
-  initChrome({ active });
+  initChrome({ active, transparentHeader });
   if (meta) setPageMeta(meta);
 }
+
+export { armHeaderScrollState };

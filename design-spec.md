@@ -8,16 +8,38 @@ block. Layout notes are build-intent, not pixel specs._
 
 ## 0. Design system (applies to every page)
 
-### Brand tokens
-- **Colour:** Ink Navy `#1B2A4A` (text, headers, primary buttons), Warm Clay `#C56A4E`
-  (secondary CTA, sale/energy accents, links on Bone), Bone `#F4EEE4` (page ground),
-  Muted Brass `#B08A46` (hairlines, icons, "New In" tags — under 10% of any layout),
-  pure black reserved for legal/functional microcopy only. White `#FFFFFF` for cards and
-  product-image grounds.
-- **Type:** Fraunces for H1/H2 and campaign headlines; Inter all-caps + wide tracking
-  for eyebrows, section labels, nav, buttons; Inter regular for body and UI. Fallback
-  stack: Playfair Display → Fraunces for headings if testing finds Fraunces too
-  expressive. Fonts self-hosted from the CDN (WOFF2, `font-display: swap`, preloaded).
+### Design tokens (authoritative — frontend implements these as CSS custom properties)
+
+Palette per `brand-brief.md` section 4 (Orchid & Aubergine — final, client-selected).
+Every earlier colour (Ink Navy, Bone, Warm Clay, and the interim Emerald/Plum) is
+removed. **Aubergine must appear on every screen — nav, footer, and all headings — or
+the pale lilac ground drifts toward "beauty brand". Orchid ships at full saturation
+always; never tint or lighten it.**
+
+| Token | Name | Hex | Role |
+|---|---|---|---|
+| `--color-primary` | Aubergine | `#4A1D42` | Primary brand colour: logo, header/nav, footer, and ALL headings (H1–H6, Fraunces). |
+| `--color-cta` | Orchid | `#9E3C88` | CTA / interactive: primary buttons, links, focus rings, in-stock / success state. Full saturation always. |
+| `--color-bg` | Orchid Mist | `#F7F1F7` | Page background. |
+| `--color-text` | Blackcurrant Ink | `#241F27` | Body text and UI copy. |
+| `--color-surface` | White | `#FFFFFF` | Cards and panels that lift off the lilac ground; product-image grounds; text colour on Aubergine / Orchid / Ruby fills. |
+| `--color-hairline` | Mauve Grey | `#DED5DE` | Dividers, input borders, disabled fills only. Never used for text or state-carrying icons. |
+| `--color-danger` | Ruby | `#A82838` | Sale prices, form error text, and error / sale badges. AA on Orchid Mist. |
+| `--color-accent` | Antique Gold | `#B08A46` | Decorative accent only — fine rules, "New In" tags, the gold-keystone logo variant, packaging foil. Never carries information; keep under 10% of any layout. |
+
+- **Type:** Fraunces for H1/H2 and campaign headlines (set in Aubergine, not Orchid);
+  Inter all-caps + wide tracking for eyebrows, section labels, nav, buttons; Inter
+  regular for body and UI. Fallback stack: Playfair Display → Fraunces for headings if
+  testing finds Fraunces too expressive. Fonts self-hosted from the CDN (WOFF2,
+  `font-display: swap`, preloaded).
+- **Logo assets:** real mark — a rounded arch framing a serif "E", with a
+  "HOUSE OF / ESTHER" wordmark. Full stacked lockup at `brand/logo-draft.svg`; monogram
+  (arch + E, no wordmark) at `brand/logo-monogram.svg`, which is the favicon / app-icon
+  base. Single colour, driven by CSS `color`, default Aubergine `#4A1D42`; set
+  `color: #F7F1F7` for the reversed mark on an Aubergine field. Never place the mark on
+  Orchid or in more than one colour. Favicon: monogram only — SVG plus 32px / 16px PNG
+  masters; maskable / Apple-touch icon (180px) is an Aubergine field with an Orchid-Mist
+  monogram.
 - **Voice in UI copy:** confident, warm, discerning, specific about fit and quality.
   No "exclusive drop", no shouting, minimal exclamation. Empty states, errors and
   confirmations all carry this voice ("We could not reach M-Pesa just then — try again
@@ -27,10 +49,14 @@ block. Layout notes are build-intent, not pixel specs._
   Mobile-first — every layout is designed at 360px first.
 
 ### Accessibility (WCAG 2.1 AA — non-negotiable per standards)
-- All interactive elements keyboard reachable, visible focus ring (Brass, 2px offset).
+- All interactive elements keyboard reachable, visible focus ring (Orchid `#9E3C88`,
+  2px, 2px offset).
 - Colour is never the only signal (sale price also labelled; stock state has text).
-- Check Warm-Clay-on-Bone and Brass-on-Bone contrast; if body text fails, use Clay/Brass
-  for large text and non-text UI only, Ink Navy for body.
+- Body text is Blackcurrant Ink `#241F27` (14.5:1 on Orchid Mist). Headings/logo
+  (Aubergine 12.2:1), links and CTAs (Orchid 5.5:1; white on Orchid 6.1:1), and sale /
+  error text (Ruby 6.2:1) all clear AA on Orchid Mist. Antique Gold fails AA (2.9:1) —
+  decorative only, never text or state-carrying icons. Mauve Grey is hairline / disabled
+  only, never text.
 - Images have meaningful `alt`; decorative images `alt=""`.
 - Forms: label every field, describe errors in text tied via `aria-describedby`, never
   rely on placeholder as label.
@@ -103,16 +129,17 @@ block, image gallery.
 ### 1. Home
 Target: give a first-time visitor from Instagram fast proof of taste + reliability, and
 route them into the catalog in one tap.
-- **Announcement bar** — one line, e.g. countrywide delivery + M-Pesa. Dismissible.
-  Content from home content API.
-- **Header/nav** — logo centre or left, category links, search, account, cart count.
+- **Announcement bar** — one line, e.g. countrywide delivery + M-Pesa. Aubergine
+  background, Orchid Mist text. Dismissible. Content from home content API.
+- **Header/nav** — logo (the arch-and-E lockup, `brand/logo-draft.svg`, Aubergine)
+  centre or left, category links, search, account, cart count.
 - **Hero** — one editorial image (or a 2-slide set, reduced-motion aware), Fraunces
   headline, one sentence of brand promise, single primary CTA ("Shop new in"). Layout:
   full-bleed image, text block left-aligned over a scrim on mobile, beside image on
   desktop. Image is the one large asset on first paint.
-- **Trust strip** — 3-4 short items with Brass icons: M-Pesa & pay on delivery /
-  delivered countrywide / real photos, honest sizing / responsive support. Row on
-  desktop, 2x2 on mobile.
+- **Trust strip** — 3-4 short items with Antique Gold icons (decorative, alongside text
+  labels): M-Pesa & pay on delivery / delivered countrywide / real photos, honest
+  sizing / responsive support. Row on desktop, 2x2 on mobile.
 - **Shop by category** — 7 tiles (one per category) as an image grid, 3-4 across
   desktop, 2 across mobile, each a thumbnail + label.
 - **New in** — horizontal scroll / grid of ~8 product cards from the `new-arrivals`
@@ -515,20 +542,24 @@ with.
 
 ## 4. Component inventory (reused across pages)
 
-- **Header / nav** — logo, category links (7) + New In + Sale, search trigger, account,
-  wishlist, cart count. Sticky on scroll. Mobile: hamburger drawer, persistent search +
-  cart.
-- **Announcement bar** — dismissible, content-driven.
-- **Footer** — 4 columns: Shop (categories), Help (FAQ, Delivery & Returns, Size Guide,
+- **Header / nav** — logo (the arch-and-E lockup, `brand/logo-draft.svg`, single-colour
+  Aubergine `#4A1D42`; reverses to Orchid Mist `#F7F1F7` on an Aubergine field),
+  category links (7) + New In + Sale, search trigger, account, wishlist, cart count.
+  Sticky on scroll. Mobile: hamburger drawer, persistent search + cart.
+- **Announcement bar** — dismissible, content-driven. Aubergine background, Orchid Mist
+  text; any link underlined (not colour-only).
+- **Footer** — Aubergine `#4A1D42` ground with Orchid Mist text and the reversed logo
+  lockup. 4 columns: Shop (categories), Help (FAQ, Delivery & Returns, Size Guide,
   Contact, Track order), About (Our Story, Journal, the boutique), Legal (Terms of Sale,
   Privacy, Returns & Refund). Newsletter block, social icons, payment marks (M-Pesa),
   copyright.
-- **Product card** — thumbnail (lazy below fold), name, price block, tag (New In / Sale),
-  colour swatches, optional rating. Entire card is one link.
+- **Product card** — thumbnail (lazy below fold), name, price block, tag (New In in
+  Antique Gold / Sale in Ruby), colour swatches, optional rating. Entire card is one link.
 - **Price block** — current price; if discounted: was-price (struck + "Was" label) and
-  "Save KES X"; all states text-labelled, not colour-only.
+  "Save KES X" in Ruby `#A82838`; all states text-labelled, not colour-only.
 - **Variant selector** — size buttons + colour swatches; unavailable combos disabled with
-  accessible naming; drives stock cue.
+  accessible naming; drives stock cue. Selected state uses Orchid; disabled uses Mauve
+  Grey.
 - **Quantity stepper** — −/+ with typable field, min 1, max = available stock.
 - **Filter panel** — faceted, chip summary, sidebar on desktop / drawer on mobile.
 - **Sort control** — select.
@@ -538,16 +569,20 @@ with.
 - **Review card.**
 - **Form field set** — label, input, help text, inline error tied by `aria-describedby`,
   required marker. Covers text, email, tel, select, textarea, checkbox, radio group.
-- **Button set** — primary (Ink Navy fill), secondary (Warm Clay outline/fill), tertiary
-  (text link), destructive; loading and disabled states.
-- **Toast / inline alert** — success / info / warning / error, voice-led.
+  Input borders Mauve Grey; focus ring Orchid; error text and border Ruby.
+- **Button set** — primary (Orchid `#9E3C88` fill, white label), secondary (Aubergine
+  `#4A1D42` outline + label, transparent fill), tertiary (Orchid text link),
+  destructive (Ruby `#A82838` fill, white label); loading and disabled states (disabled
+  = Mauve Grey fill).
+- **Toast / inline alert** — success / info / warning / error, voice-led. Success uses
+  Orchid, error uses Ruby; each pairs an icon with text, never colour alone.
 - **Modal / lightbox** — image lightbox, size-guide modal, legal-document modal.
 - **Cart drawer** — slide-over line items + subtotal + CTAs.
 - **Address form** — name, phone, county (select), town/estate, instructions, default
   toggle.
 - **Order-status timeline** — shared by order tracking, account order detail, admin
   (read-only vs editable variants).
-- **Trust strip** — icon + label items.
+- **Trust strip** — icon (Antique Gold, decorative) + label items.
 - **Newsletter block** — email + submit + consent line + double-opt-in feedback.
 - **Image gallery** — carousel (mobile) / thumb-column + main + lightbox (desktop).
 - **Admin table** — sortable columns, filters, row actions, bulk actions, pagination

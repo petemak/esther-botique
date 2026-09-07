@@ -11,6 +11,9 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+// Seed photos live in the repo's brand/ dir; the deploy build copies them into dist/seed/.
+// Serve them at /seed/ here so `npm run dev` shows real images without a backend.
+const SEED = resolve(ROOT, '../../brand/seed-images');
 const PORT = Number(process.argv[2]) || 4321;
 
 const TYPES = {
@@ -43,6 +46,12 @@ async function tryFile(p) {
 async function resolvePath(urlPath) {
   const clean = decodeURIComponent(urlPath.split('?')[0]);
   const safe = normalize(clean).replace(/^(\.\.[/\\])+/, '');
+
+  if (safe.startsWith('/seed/') || safe.startsWith('seed/')) {
+    const seedFile = join(SEED, safe.replace(/^\/?seed\//, ''));
+    return seedFile.startsWith(SEED) ? tryFile(seedFile) : null;
+  }
+
   const abs = join(ROOT, safe);
   if (!abs.startsWith(ROOT)) return null;
 

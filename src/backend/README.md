@@ -106,24 +106,20 @@ clojure -X:test
   `MPESA_ENV=stub` the STK push returns a synthetic `checkoutRequestId` and the
   callback endpoint can be driven manually to simulate `paid`/`failed`.
 
-## Seed images — items that still need a real, category-matched photo
+## Seed images
 
-Every image in `seed.clj` is a **neutral placeholder**: the URL has the
-production CDN shape (`https://cdn.houseofesther.co.ke/seed/…`) but resolves to
-nothing. None of them is a real or even category-accurate photo. Before launch,
-real photography is needed for:
+`seed.clj` now seeds **real photographs** (21 images: products, category tiles,
+journal covers, home hero + editorial, collection heroes). All are sourced from
+Pexels under the Pexels License (free for commercial use, no attribution
+required); per-image source page, photographer and licence are in
+`brand/seed-images/CREDITS.md`, and real dimensions / byte sizes come from
+`brand/seed-images/manifest.json`.
 
-**Products** (primary + gallery): Orin Linen Dress, Harlan Leather Crossbody,
-Maren Wide-Leg Trousers, Sena Ribbed Knit Top, Ada Shirt Dress, Kito Woven Tote,
-Lulu Gold Hoops, Taza Handwoven Throw, Nia Cropped Jacket (draft).
-
-**Category tiles**: Women, Accessories, Home.
-
-**Journal covers/heroes**: The September Edit, Caring for Leather, On Honest Sizing.
-
-**Home**: hero image, two editorial blocks.
-
-**Collection heroes**: Workwear, New Arrivals.
+The image files are deployed into the frontend static build and served from
+`{CDN_BASE_URL}/seed/{id}-{800|2000}.jpg`. The backend does not copy or serve the
+files — it only stores the rows. `CDN_BASE_URL` is read from config, so
+staging/prod point `seed.clj`'s URLs at their own origin (the deploy step sets it
+to the frontend origin).
 
 ## Known gaps (flagged to lead)
 

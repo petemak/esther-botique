@@ -8,10 +8,13 @@ const KES = (amount) => ({ amount, currency: 'KES' });
 const IMG = (id, alt) => ({
   id,
   alt,
-  thumbUrl: `/assets/img/placeholder.svg#${id}`,
-  fullUrl: `/assets/img/placeholder.svg#${id}`,
-  width: 800,
-  height: 1000,
+  // Real seed photos deploy to the site origin at /seed/{id}-{size}.jpg (see
+  // deploy/build-staging-frontend.sh + tools/serve.js). imageEl() falls back to the
+  // neutral SVG placeholder if a file is genuinely missing.
+  thumbUrl: `/seed/${id}-800.jpg`,
+  fullUrl: `/seed/${id}-2000.jpg`,
+  width: 1600,
+  height: 2000,
   isPrimary: false,
 });
 
@@ -35,15 +38,15 @@ const PRODUCTS = [
     onSale: true,
     isNew: true,
     vatInclusive: true,
-    images: [{ ...IMG('img_9f2', 'Tan leather crossbody bag, front view'), isPrimary: true }, IMG('img_9f3', 'Tan leather crossbody bag, side view')],
-    primaryImage: { ...IMG('img_9f2', 'Tan leather crossbody bag, front view'), width: 800, height: 1000 },
+    images: [{ ...IMG('img_harlan1', 'Tan leather crossbody bag, front view'), isPrimary: true }, IMG('img_harlan2', 'Tan leather crossbody bag, side view')],
+    primaryImage: { ...IMG('img_harlan1', 'Tan leather crossbody bag, front view'), width: 800, height: 1000 },
     optionAxes: [
       { name: 'Colour', values: ['Tan', 'Black'] },
       { name: 'Size', values: ['One size'] },
     ],
     variants: [
-      { id: 'var_tan', sku: 'HAR-CB-TAN-OS', options: { Colour: 'Tan', Size: 'One size' }, price: KES(6800), compareAtPrice: KES(8200), inStock: true, stockState: 'in_stock', quantityAvailable: 7, imageId: 'img_9f2' },
-      { id: 'var_black', sku: 'HAR-CB-BLK-OS', options: { Colour: 'Black', Size: 'One size' }, price: KES(6800), compareAtPrice: KES(8200), inStock: true, stockState: 'low_stock', quantityAvailable: 2, imageId: 'img_9f3' },
+      { id: 'var_tan', sku: 'HAR-CB-TAN-OS', options: { Colour: 'Tan', Size: 'One size' }, price: KES(6800), compareAtPrice: KES(8200), inStock: true, stockState: 'in_stock', quantityAvailable: 7, imageId: 'img_harlan1' },
+      { id: 'var_black', sku: 'HAR-CB-BLK-OS', options: { Colour: 'Black', Size: 'One size' }, price: KES(6800), compareAtPrice: KES(8200), inStock: true, stockState: 'low_stock', quantityAvailable: 2, imageId: 'img_harlan2' },
     ],
     sizeGuideCategory: 'bags',
     rating: { average: 4.6, count: 23 },
@@ -71,7 +74,7 @@ const PRODUCTS = [
     onSale: false,
     isNew: true,
     vatInclusive: true,
-    images: [{ ...IMG('img_orin1', 'Sand linen dress, front view'), isPrimary: true }],
+    images: [{ ...IMG('img_orin1', 'Sand linen dress, front view'), isPrimary: true }, IMG('img_orin2', 'Sand linen dress, side view')],
     primaryImage: IMG('img_orin1', 'Sand linen dress, front view'),
     optionAxes: [
       { name: 'Colour', values: ['Sand', 'Black'] },
@@ -86,7 +89,7 @@ const PRODUCTS = [
       { id: 'var_orin_black_l', sku: 'ORIN-BLK-L', options: { Colour: 'Black', Size: 'L' }, price: KES(5400), inStock: true, stockState: 'in_stock', quantityAvailable: 2 },
     ],
     sizeGuideCategory: 'dresses',
-    rating: { average: 4.8, count: 12 },
+    rating: { average: 0, count: 0 }, // seed products ship with no reviews yet — drives the buy-box null-child path
     seo: { title: 'Orin Linen Dress — Women — House of Esther', description: 'A breathable linen dress.' },
     breadcrumbs: [{ label: 'Home', href: '/' }, { label: 'Women', href: '/women' }, { label: 'Dresses', href: '/women/dresses' }],
     colors: [{ name: 'Sand', hex: '#D9C9A8' }, { name: 'Black', hex: '#1A1A1A' }],
@@ -183,14 +186,18 @@ export async function installMockApi(page, opts = {}) {
       return json(200, {
         announcement: { enabled: true, text: 'Delivered countrywide. Pay with M-Pesa or on delivery.', href: '/delivery-returns.html' },
         hero: { headline: 'Style worth the wait', subcopy: 'Curated pieces, honest sizing, delivered to your door.', ctaLabel: 'Shop new in', ctaHref: '/new-in.html', image: IMG('img_hero1', 'Editorial hero') },
-        categoryTiles: [{ label: 'Women', href: '/women.html', image: IMG('img_c1', 'Womenswear') }, { label: 'Accessories', href: '/accessories.html', image: IMG('img_c2', 'Accessories') }],
-        editorialBlocks: [{ id: 'eb_1', caption: 'The September edit', image: IMG('img_e1', 'September edit'), href: '/journal-article.html?slug=september-edit' }],
+        categoryTiles: [{ label: 'Women', href: '/women.html', image: IMG('img_cat_women', 'Womenswear') }, { label: 'Accessories', href: '/accessories.html', image: IMG('img_cat_accessories', 'Accessories') }],
+        editorialBlocks: [{ id: 'eb_1', caption: 'The September edit', image: IMG('img_ed1', 'September edit'), href: '/journal-article.html?slug=september-edit' }],
         featuredCollectionSlug: 'workwear',
         socialLinks: [{ platform: 'instagram', url: 'https://instagram.com/houseofesther' }],
       });
     }
     if (path === '/products' && method === 'GET') {
       const items = PRODUCTS.map(card);
+      const cat = url.searchParams.get('category');
+      // Some categories (watches, fragrance) legitimately have no colour/size/subcategory
+      // facets — the API returns [] — which is what produced the `nullnull` regression.
+      const sparse = cat === 'watches' || cat === 'fragrance';
       return json(200, {
         items,
         page: 1,
@@ -200,23 +207,23 @@ export async function installMockApi(page, opts = {}) {
         appliedFilters: {},
         facets: {
           categories: [{ value: 'women', label: 'Women', count: 1 }, { value: 'accessories', label: 'Accessories', count: 1 }],
-          subcategories: [{ value: 'bags', label: 'Bags', count: 1 }, { value: 'dresses', label: 'Dresses', count: 1 }],
-          colors: [{ value: 'Black', label: 'Black', hex: '#1A1A1A', count: 2 }, { value: 'Tan', label: 'Tan', hex: '#B98A5E', count: 1 }],
-          sizes: [{ value: 'M', label: 'M', count: 1 }, { value: 'S', label: 'S', count: 1 }],
+          subcategories: sparse ? [] : [{ value: 'bags', label: 'Bags', count: 1 }, { value: 'dresses', label: 'Dresses', count: 1 }],
+          colors: sparse ? [] : [{ value: 'Black', label: 'Black', hex: '#1A1A1A', count: 2 }, { value: 'Tan', label: 'Tan', hex: '#B98A5E', count: 1 }],
+          sizes: sparse ? [] : [{ value: 'M', label: 'M', count: 1 }, { value: 'S', label: 'S', count: 1 }],
           priceRange: { min: 5400, max: 6800, currency: 'KES' },
         },
         query: { term: url.searchParams.get('q') || null, didYouMean: null },
-        heading: { title: url.searchParams.get('category') ? cap(url.searchParams.get('category')) : 'New In', description: 'Considered pieces, chosen with care.' },
+        heading: { title: cat ? cap(cat) : 'New In', description: 'Considered pieces, chosen with care.' },
       });
     }
     if (path === '/categories') {
       return json(200, { items: [
-        { slug: 'women', label: 'Women', description: 'Workwear and off-duty.', image: IMG('img_c1', 'Women'), subcategories: [{ slug: 'dresses', label: 'Dresses' }, { slug: 'tops', label: 'Tops' }] },
-        { slug: 'accessories', label: 'Accessories', description: 'Bags and finishing pieces.', image: IMG('img_c2', 'Accessories'), subcategories: [{ slug: 'bags', label: 'Bags' }] },
+        { slug: 'women', label: 'Women', description: 'Workwear and off-duty.', image: IMG('img_cat_women', 'Women'), subcategories: [{ slug: 'dresses', label: 'Dresses' }, { slug: 'tops', label: 'Tops' }] },
+        { slug: 'accessories', label: 'Accessories', description: 'Bags and finishing pieces.', image: IMG('img_cat_accessories', 'Accessories'), subcategories: [{ slug: 'bags', label: 'Bags' }] },
       ] });
     }
     if (path.startsWith('/collections/')) {
-      return json(200, { slug: path.split('/')[2], title: 'Workwear', description: 'Considered workwear.', heroImage: IMG('img_col1', 'Workwear') });
+      return json(200, { slug: path.split('/')[2], title: 'Workwear', description: 'Considered workwear.', heroImage: IMG('img_col_workwear', 'Workwear') });
     }
     if (path === '/search/suggestions') {
       return json(200, { terms: ['linen dress'], products: [{ slug: 'orin-linen-dress', name: 'Orin Linen Dress', price: KES(5400), thumbUrl: '/assets/img/placeholder.svg', alt: 'Orin Linen Dress' }], categories: [{ slug: 'women', label: 'Women' }] });
@@ -421,8 +428,8 @@ export async function installMockApi(page, opts = {}) {
     if (path === '/subscriptions/confirm') return json(200, { status: 'confirmed' });
     if (path === '/subscriptions/unsubscribe') return json(200, { status: 'unsubscribed' });
     if (path === '/contact' && method === 'POST') return json(201, { reference: 'MSG-2026-0442', message: 'Got it. We reply within one business day.' });
-    if (path === '/journal' && method === 'GET') return json(200, { items: [{ slug: 'september-edit', title: 'The September Edit', excerpt: 'Dressing for the in-between season.', tag: 'lookbook', coverImage: IMG('img_j1', 'September edit'), publishedAt: '2026-09-01T08:00:00Z' }], page: 1, pageSize: 12, total: 1, totalPages: 1 });
-    if (path.match(/^\/journal\/[^/]+$/)) return json(200, { slug: path.split('/')[2], title: 'The September Edit', tag: 'lookbook', heroImage: IMG('img_j1', 'September edit'), publishedAt: '2026-09-01T08:00:00Z', bodyHtml: '<p>A note on the season.</p>', shopTheLook: PRODUCTS.map(card), related: [], seo: { title: 'The September Edit — The Journal — House of Esther', description: 'A note.' } });
+    if (path === '/journal' && method === 'GET') return json(200, { items: [{ slug: 'september-edit', title: 'The September Edit', excerpt: 'Dressing for the in-between season.', tag: 'lookbook', coverImage: IMG('img_j_sept', 'September edit'), publishedAt: '2026-09-01T08:00:00Z' }], page: 1, pageSize: 12, total: 1, totalPages: 1 });
+    if (path.match(/^\/journal\/[^/]+$/)) return json(200, { slug: path.split('/')[2], title: 'The September Edit', tag: 'lookbook', heroImage: IMG('img_j_sept', 'September edit'), publishedAt: '2026-09-01T08:00:00Z', bodyHtml: '<p>A note on the season.</p>', shopTheLook: PRODUCTS.map(card), related: [], seo: { title: 'The September Edit — The Journal — House of Esther', description: 'A note.' } });
 
     // ---- admin ----
     if (path === '/admin/auth/me') return state.admin ? json(200, { user: { id: 'usr_admin1', name: 'Esther', role: 'admin' } }) : err(401, 'unauthorized', 'Sign in.');
@@ -502,7 +509,7 @@ export async function installMockApi(page, opts = {}) {
     if (path === '/admin/broadcasts' && method === 'GET') return json(200, { items: [{ id: 'bcast_12', subject: 'New in: the September leather edit', status: 'sent', sentCount: 812, openCount: 240, createdAt: '2026-09-02T08:00:00Z' }] });
     if (path === '/admin/broadcasts' && method === 'POST') return json(201, { id: 'bcast_13', status: 'queued', recipientCount: 812, createdAt: new Date().toISOString() });
     if (path.match(/^\/admin\/broadcasts\/[^/]+\/test$/)) return route.fulfill({ status: 202, body: '' });
-    if (path === '/admin/content/home' && method === 'GET') return json(200, { announcement: { enabled: true, text: 'Delivered countrywide.', href: '/delivery-returns.html' }, hero: { headline: 'Style worth the wait', subcopy: 'Curated pieces.', ctaLabel: 'Shop new in', ctaHref: '/new-in.html', imageId: 'img_hero1' }, categoryTiles: [{ label: 'Women', href: '/women.html', imageId: 'img_c1' }], editorialBlocks: [{ id: 'eb_1', caption: 'The September edit', imageId: 'img_e1', href: '/journal-article.html?slug=september-edit' }], featuredCollectionSlug: 'workwear', socialLinks: [{ platform: 'instagram', url: 'https://instagram.com/houseofesther' }] });
+    if (path === '/admin/content/home' && method === 'GET') return json(200, { announcement: { enabled: true, text: 'Delivered countrywide.', href: '/delivery-returns.html' }, hero: { headline: 'Style worth the wait', subcopy: 'Curated pieces.', ctaLabel: 'Shop new in', ctaHref: '/new-in.html', imageId: 'img_hero1' }, categoryTiles: [{ label: 'Women', href: '/women.html', imageId: 'img_cat_women' }], editorialBlocks: [{ id: 'eb_1', caption: 'The September edit', imageId: 'img_ed1', href: '/journal-article.html?slug=september-edit' }], featuredCollectionSlug: 'workwear', socialLinks: [{ platform: 'instagram', url: 'https://instagram.com/houseofesther' }] });
     if (path === '/admin/content/home' && method === 'PUT') return json(200, body);
     if (path === '/admin/legal' && method === 'GET') return json(200, { items: Object.values(LEGAL).map((d) => ({ docType: d.docType, currentVersion: d.version, effectiveDate: d.effectiveDate, updatedAt: d.effectiveDate })) });
     if (path.match(/^\/admin\/legal\/[^/]+$/) && method === 'GET') { const d = LEGAL[path.split('/')[3]]; return json(200, { ...d, versions: d.previousVersions }); }
@@ -531,7 +538,7 @@ function sampleAdminOrder(num) {
     customer: { firstName: 'Wanjiru', email: 'wanjiru@example.com', phone: '+254712345123' },
     deliveryAddress: { recipientName: 'Wanjiru M.', phone: '+254712345123', county: 'Nakuru', town: 'Milimani', instructions: 'Gate 3' },
     deliveryMethod: { code: 'town_courier', label: 'Courier to town', eta: '2-4 business days' },
-    items: [{ productId: 'prod_1042', variantId: 'var_tan', name: 'Harlan Leather Crossbody', options: { Colour: 'Tan', Size: 'One size' }, image: IMG('img_9f2', 'bag'), unitPrice: KES(6800), quantity: 1, lineTotal: KES(6800) }],
+    items: [{ productId: 'prod_1042', variantId: 'var_tan', name: 'Harlan Leather Crossbody', options: { Colour: 'Tan', Size: 'One size' }, image: IMG('img_harlan1', 'bag'), unitPrice: KES(6800), quantity: 1, lineTotal: KES(6800) }],
     subtotal: KES(6800), discountTotal: KES(0), deliveryFee: KES(450), total: KES(7250),
     payment: { method: 'pay_on_delivery', state: 'awaiting_delivery' },
     cancellable: true,

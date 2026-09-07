@@ -2,8 +2,8 @@
 
 /* ---------- Announcement bar ---------- */
 .announcement {
-  background: var(--ink-navy);
-  color: var(--bone);
+  background: var(--color-primary);
+  color: var(--color-bg);
   font-size: var(--step--1);
   text-align: center;
 }
@@ -16,13 +16,13 @@
   min-height: 2rem;
 }
 .announcement a {
-  color: var(--bone);
+  color: var(--color-bg);
   text-decoration: underline;
 }
 .announcement__dismiss {
   background: transparent;
   border: 0;
-  color: var(--bone);
+  color: var(--color-bg);
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
@@ -33,8 +33,9 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--bone);
+  background: var(--color-bg);
   border-bottom: 1px solid var(--hairline);
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 .site-header__bar {
   display: grid;
@@ -44,16 +45,107 @@
   min-height: var(--header-h);
   padding-block: var(--space-2xs);
 }
+
+/* Home only: header overlays the hero photo until it's scrolled past. */
+.has-transparent-header .site-header {
+  position: fixed;
+  inset: 0 0 auto 0;
+}
+
+/* Home layout: let the full-bleed hero + self-wrapping sections run edge to edge.
+   Every home section carries its own .wrap, so the shell's .page/.wrap constraints
+   are dropped here. */
+.page-home #main.page {
+  padding: 0;
+}
+.page-home #main > .wrap {
+  max-width: none;
+  padding-inline: 0;
+}
+/* The hero sits under the fixed header; the first section after it reserves the
+   header's height so its heading isn't tucked under the solid header on scroll. */
+.page-home .hero + .section {
+  padding-top: calc(var(--header-h) + 2.5rem);
+}
+.site-header--transparent:not(.is-solid) {
+  background: transparent;
+  border-bottom-color: transparent;
+  color: var(--color-bg);
+}
+.site-header--transparent:not(.is-solid)::before {
+  /* readability scrim — painted before the bar's content, so nav stays on top */
+  content: "";
+  position: absolute;
+  inset: 0;
+  height: 220%;
+  background: linear-gradient(rgba(36, 31, 39, 0.45), rgba(36, 31, 39, 0));
+  pointer-events: none;
+}
+.site-header--transparent:not(.is-solid) .announcement {
+  position: relative; /* keep the Aubergine strip opaque above the scrim */
+}
+.site-header--transparent:not(.is-solid) .brand,
+.site-header--transparent:not(.is-solid) .brand:hover,
+.site-header--transparent:not(.is-solid) .primary-nav a,
+.site-header--transparent:not(.is-solid) .icon-btn {
+  color: var(--color-bg);
+}
+.site-header--transparent:not(.is-solid) .primary-nav a:hover,
+.site-header--transparent:not(.is-solid) .primary-nav a[aria-current="page"] {
+  color: var(--color-surface);
+  text-decoration: underline;
+  text-underline-offset: 0.3em;
+}
+.site-header--transparent.is-solid {
+  background: var(--color-bg);
+  border-bottom-color: var(--hairline);
+}
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.brand:hover {
+  color: var(--color-cta);
+}
+.brand__mark {
+  height: 2.4rem; /* ~38px — prominent next to the wordmark; reads in both header states */
+  width: auto;
+  flex: none;
+}
+@media (min-width: 48rem) {
+  .brand__mark {
+    height: 2.6rem;
+  }
+}
+.brand__word {
   font-family: var(--font-display);
   font-size: var(--step-1);
   font-weight: 600;
-  color: var(--ink-navy);
-  text-decoration: none;
   letter-spacing: 0.01em;
+  white-space: nowrap;
 }
-.brand:hover {
-  color: var(--ink-navy);
+@media (max-width: 26rem) {
+  .brand__word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+
+/* footer lockup — reversed (Orchid Mist on Aubergine) */
+.footer-brand {
+  display: inline-block;
+  margin-bottom: var(--space-l);
+  color: var(--color-bg);
+}
+.footer-brand__mark {
+  width: 8.5rem;
+  height: auto;
 }
 .primary-nav {
   display: none;
@@ -61,21 +153,29 @@
 .primary-nav ul {
   list-style: none;
   display: flex;
-  gap: var(--space-m);
+  flex-wrap: wrap;
+  gap: var(--space-2xs) clamp(0.55rem, 0.9vw, 1rem);
   padding: 0;
   margin: 0;
+  justify-content: center;
 }
 .primary-nav a {
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.05em;
   font-size: var(--step--1);
   font-weight: 600;
-  color: var(--ink-navy);
+  color: var(--color-primary);
   text-decoration: none;
+  white-space: nowrap;
+}
+@media (min-width: 82rem) {
+  .primary-nav a {
+    letter-spacing: 0.08em;
+  }
 }
 .primary-nav a:hover,
 .primary-nav a[aria-current="page"] {
-  color: var(--warm-clay-dark);
+  color: var(--color-cta);
 }
 .header-actions {
   display: flex;
@@ -90,7 +190,7 @@
   background: transparent;
   border: 0;
   cursor: pointer;
-  color: var(--ink-navy);
+  color: var(--color-primary);
   text-decoration: none;
   position: relative;
 }
@@ -105,8 +205,8 @@
   min-width: 1.1rem;
   height: 1.1rem;
   padding-inline: 0.2rem;
-  background: var(--warm-clay-dark);
-  color: var(--white);
+  background: var(--color-cta);
+  color: var(--color-surface);
   border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 700;
@@ -130,7 +230,7 @@
   position: fixed;
   inset: 0 auto 0 0;
   width: min(20rem, 90vw);
-  background: var(--bone);
+  background: var(--color-bg);
   z-index: 250;
   transform: translateX(-100%);
   transition: transform var(--transition);
@@ -152,14 +252,14 @@
   letter-spacing: 0.08em;
   font-size: var(--step--1);
   font-weight: 600;
-  color: var(--ink-navy);
+  color: var(--color-primary);
   text-decoration: none;
 }
 
 /* search overlay */
 .search-panel {
   border-top: 1px solid var(--hairline);
-  background: var(--bone);
+  background: var(--color-bg);
   padding: var(--space-s);
 }
 .search-panel form {
@@ -181,11 +281,11 @@
   gap: var(--space-2xs);
   padding: var(--space-2xs);
   text-decoration: none;
-  color: var(--ink-navy);
+  color: var(--color-primary);
   align-items: center;
 }
 .search-suggestions a:hover {
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
 }
 .search-suggestions img {
   width: 2.5rem;
@@ -197,18 +297,18 @@
 /* ---------- Footer ---------- */
 .site-footer {
   flex-shrink: 0;
-  background: var(--ink-navy);
-  color: var(--bone);
+  background: var(--color-primary);
+  color: var(--color-bg);
   padding-block: var(--space-xl);
   margin-top: var(--space-2xl);
 }
 .site-footer a {
-  color: var(--bone);
+  color: var(--color-bg);
   text-decoration: none;
 }
 .site-footer a:hover {
   text-decoration: underline;
-  color: var(--bone);
+  color: var(--color-bg);
 }
 .footer-grid {
   display: grid;
@@ -230,7 +330,7 @@
   font-size: var(--step--1);
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--brass);
+  color: var(--color-bg);
   margin-bottom: var(--space-2xs);
 }
 .footer-col ul {
@@ -243,7 +343,7 @@
 .footer-bottom {
   margin-top: var(--space-xl);
   padding-top: var(--space-s);
-  border-top: 1px solid rgba(244, 238, 228, 0.2);
+  border-top: 1px solid color-mix(in srgb, var(--color-hairline) 30%, transparent);
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-s);
@@ -257,40 +357,74 @@
   padding: 0;
 }
 
-/* ---------- Hero ---------- */
+/* ---------- Hero (home only) — full-bleed photo, content overlaid + bottom-aligned ---------- */
 .hero {
   position: relative;
-  display: grid;
+  display: flex;
+  align-items: flex-end;
+  min-height: clamp(30rem, 78vh, 47.5rem);
+  background: var(--color-primary); /* Aubergine shows through below the photo */
+  overflow: hidden;
 }
 .hero__media {
-  position: relative;
-  aspect-ratio: 3 / 4;
-  background: var(--bone-dark);
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 .hero__media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center 22%;
 }
-.hero__panel {
-  padding: var(--space-l) var(--space-s);
-  background: var(--bone);
+.hero__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    rgba(36, 31, 39, 0) 30%,
+    color-mix(in srgb, var(--color-primary) 82%, transparent) 100%
+  );
 }
-.hero__panel h1 {
+.hero__inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding-top: clamp(6rem, 15vh, 9rem); /* clears the transparent fixed header */
+  padding-bottom: clamp(2rem, 5vh, 3rem);
+}
+.hero__content {
+  max-width: 40rem;
+}
+.hero__content > * + * {
+  margin-top: var(--space-s);
+}
+.hero__content .eyebrow,
+.hero__content h1,
+.hero__content .lede {
+  color: var(--color-bg); /* Orchid Mist — legible over photo + Aubergine */
+}
+.hero__content h1 {
   font-size: var(--step-4);
+  text-shadow: 0 1px 14px rgba(36, 31, 39, 0.4);
 }
-@media (min-width: 48rem) {
+.hero__content .lede {
+  max-width: 34rem;
+}
+.hero__content .btn {
+  margin-top: var(--space-m);
+}
+/* Zero-height marker at the top of the hero content (first child, before the eyebrow).
+   The header-swap IntersectionObserver watches this (not the whole .hero section) so the
+   header turns solid the instant the content's top edge reaches the header line — the
+   eyebrow/headline/CTA then scroll under a solid header, never the transparent one. */
+.hero__sentinel {
+  width: 100%;
+  height: 0;
+}
+@media (max-width: 30rem) {
   .hero {
-    grid-template-columns: 1.3fr 1fr;
-  }
-  .hero__media {
-    aspect-ratio: 16 / 12;
-  }
-  .hero__panel {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: var(--space-2xl);
+    min-height: clamp(26rem, 68vh, 34rem);
   }
 }
 
@@ -312,9 +446,9 @@
   border-radius: var(--radius);
   display: flex;
   align-items: flex-end;
-  color: var(--white);
+  color: var(--color-surface);
   text-decoration: none;
-  background: var(--ink-navy);
+  background: var(--color-primary);
 }
 .tile img {
   position: absolute;
@@ -380,7 +514,7 @@
   aspect-ratio: 16 / 10;
   overflow: hidden;
   border-radius: var(--radius);
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
 }
 .editorial__media img {
   width: 100%;
@@ -413,7 +547,7 @@
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-s);
-  background: var(--white);
+  background: var(--color-surface);
 }
 .filter-panel fieldset {
   border: 0;
@@ -465,7 +599,7 @@
 .gallery__main {
   aspect-ratio: 4 / 5;
   overflow: hidden;
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
   border-radius: var(--radius);
 }
 .gallery__main img {
@@ -486,13 +620,13 @@
   aspect-ratio: 4 / 5;
   border: 1.5px solid transparent;
   padding: 0;
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
   cursor: pointer;
   border-radius: 2px;
   overflow: hidden;
 }
 .gallery__thumbs button[aria-current="true"] {
-  border-color: var(--ink-navy);
+  border-color: var(--color-primary);
 }
 .gallery__thumbs img {
   width: 100%;
@@ -511,21 +645,21 @@
   border-radius: var(--radius);
   padding: var(--space-s);
   font-size: var(--step--1);
-  background: var(--white);
+  background: var(--color-surface);
 }
 
 /* ---------- Admin PDP preview ---------- */
 .preview-banner {
-  background: var(--brass);
-  color: var(--ink-navy);
-  border: 1px solid var(--brass-dark);
+  background: var(--color-accent);
+  color: var(--color-primary);
+  border: 1px solid var(--color-cta);
   border-radius: var(--radius);
   padding: var(--space-2xs) var(--space-s);
   margin-bottom: var(--space-m);
   font-size: var(--step--1);
 }
 .preview-banner--live {
-  background: var(--bone-dark);
+  background: var(--color-bg-sink);
   color: var(--text-muted);
 }
 .preview-toolbar {
@@ -538,7 +672,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-2xs) 0 var(--space-s);
-  background: var(--bone);
+  background: var(--color-bg);
   border-bottom: 1px solid var(--hairline);
 }
 .preview-stage {
@@ -553,7 +687,7 @@
   height: calc(100vh - 8rem);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  background: var(--white);
+  background: var(--color-surface);
 }
 .preview-stage[data-mode="mobile"] .preview-iframe {
   width: 390px;
@@ -576,7 +710,7 @@
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-m);
-  background: var(--white);
+  background: var(--color-surface);
 }
 @media (min-width: 56rem) {
   .checkout-summary {
@@ -588,7 +722,7 @@
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-m);
-  background: var(--white);
+  background: var(--color-surface);
   margin-bottom: var(--space-m);
 }
 .checkout-section > h2 {
@@ -633,8 +767,8 @@
   font-size: var(--step--1);
 }
 .tabs button[aria-selected="true"] {
-  border-color: var(--ink-navy);
-  color: var(--ink-navy);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 /* ---------- Account ---------- */
@@ -658,10 +792,10 @@
   padding: var(--space-2xs);
   border-radius: var(--radius);
   text-decoration: none;
-  color: var(--ink-navy);
+  color: var(--color-primary);
 }
 .account-nav a[aria-current="page"] {
-  background: var(--white);
+  background: var(--color-surface);
   font-weight: 700;
 }
 .order-row {
@@ -672,7 +806,7 @@
   padding: var(--space-s);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  background: var(--white);
+  background: var(--color-surface);
   text-decoration: none;
   color: inherit;
 }
@@ -684,7 +818,7 @@
   height: 3.6rem;
   object-fit: cover;
   border-radius: 2px;
-  border: 2px solid var(--white);
+  border: 2px solid var(--color-surface);
   margin-left: -0.75rem;
 }
 .order-row__thumbs img:first-child {

@@ -33,7 +33,7 @@ body {
   font-size: var(--step-0);
   line-height: 1.6;
   color: var(--text);
-  background: var(--bone);
+  background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   display: flex;
@@ -64,7 +64,7 @@ h4 {
   font-family: var(--font-display);
   font-weight: 550;
   line-height: 1.15;
-  color: var(--ink-navy);
+  color: var(--color-primary);
   text-wrap: balance;
 }
 
@@ -86,12 +86,12 @@ p {
 }
 
 a {
-  color: var(--warm-clay-dark);
+  color: var(--color-cta);
   text-underline-offset: 0.15em;
 }
 
 a:hover {
-  color: var(--ink-navy);
+  color: var(--color-primary);
 }
 
 :focus-visible {
@@ -106,7 +106,7 @@ a:hover {
   letter-spacing: 0.14em;
   font-size: var(--step--1);
   font-weight: 600;
-  color: var(--brass-dark);
+  color: var(--color-cta);
 }
 
 .visually-hidden {
@@ -125,8 +125,8 @@ a:hover {
   left: var(--space-2xs);
   top: var(--space-2xs);
   z-index: 200;
-  background: var(--ink-navy);
-  color: var(--white);
+  background: var(--color-primary);
+  color: var(--color-surface);
   padding: var(--space-2xs) var(--space-s);
   border-radius: var(--radius);
   transform: translateY(-150%);
@@ -134,7 +134,7 @@ a:hover {
 }
 .skip-link:focus {
   transform: translateY(0);
-  color: var(--white);
+  color: var(--color-surface);
 }
 
 .wrap {
@@ -185,7 +185,7 @@ a:hover {
   padding-left: 1.4em;
 }
 .prose a {
-  color: var(--warm-clay-dark);
+  color: var(--color-cta);
 }
 
 .grid {

@@ -100,8 +100,12 @@ function shell(outPath, mod, meta) {
   <meta property="og:title" content="${esc(meta.title)}">
   <meta property="og:description" content="${esc(desc)}">
   <meta property="og:type" content="website">
-  <meta name="theme-color" content="#1B2A4A">
+  <meta name="theme-color" content="#4A1D42">
   <link rel="icon" href="${up}assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="${up}assets/img/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="${up}assets/img/favicon-16.png" sizes="16x16" type="image/png">
+  <link rel="apple-touch-icon" href="${up}assets/img/apple-touch-icon.png">
+  <link rel="manifest" href="${up}site.webmanifest">
   <link rel="preconnect" href="/api" crossorigin>
   <link rel="preload" as="style" href="${cssHref}">
   <link rel="stylesheet" href="${cssHref}">${jsonld}

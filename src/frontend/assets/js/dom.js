@@ -1,5 +1,36 @@
 /** DOM helpers. Keep markup construction here so pages stay readable. */
 
+/**
+ * Single-point hardening for the whole app.
+ *
+ * Every DOM builder here treats a nullish/false child as "render nothing" — the
+ * `cond ? el(...) : null` idiom is used all over the page controllers. But the native
+ * `ParentNode.append()` (unlike `appendChild`, which throws) *coerces* `null` /
+ * `undefined` / `false` to the strings "null" / "undefined" / "false" and inserts a text
+ * node. That produced stray `null` / `nullnull` text on the PDP buy-box and the listing
+ * facet panel. Rather than guard ~300 call sites, filter nullish children once, at the
+ * lowest level, for direct native `.append()` calls. `0` and `''` are kept — those are
+ * legitimate content.
+ */
+(() => {
+  if (typeof window === 'undefined' || window.__hoeAppendGuard) return;
+  const keep = (n) => n != null && n !== false;
+  for (const proto of [Element.prototype, Document.prototype, DocumentFragment.prototype]) {
+    for (const method of ['append', 'prepend', 'replaceChildren']) {
+      const native = proto[method];
+      if (typeof native !== 'function') continue;
+      Object.defineProperty(proto, method, {
+        configurable: true,
+        writable: true,
+        value: function guarded(...nodes) {
+          return native.apply(this, nodes.flat(Infinity).filter(keep));
+        },
+      });
+    }
+  }
+  window.__hoeAppendGuard = true;
+})();
+
 export function $(sel, root) {
   return (root || document).querySelector(sel);
 }
@@ -49,11 +80,21 @@ export function el(tag, attrs, children) {
 
 export function appendChildren(node, children) {
   if (children == null) return;
-  const list = Array.isArray(children) ? children : [children];
+  const list = (Array.isArray(children) ? children : [children]).flat(Infinity);
   list.forEach((child) => {
-    if (child == null || child === false) return;
-    node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    if (child == null || child === false) return; // skip nullish; keep 0 and ''
+    node.appendChild(
+      typeof child === 'string' || typeof child === 'number'
+        ? document.createTextNode(String(child))
+        : child
+    );
   });
+}
+
+/** Append filtered children to an existing node (native `.append` is also guarded above). */
+export function add(node, ...children) {
+  appendChildren(node, children);
+  return node;
 }
 
 export function clear(node) {
@@ -76,14 +117,14 @@ export function placeholderSvg(label) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 500" role="img" aria-label="${escapeAttr(
     label || 'Image coming soon'
   )}">
-    <rect width="400" height="500" fill="#F4EEE4"/>
+    <rect width="400" height="500" fill="#F7F1F7"/>
     <rect x="16" y="16" width="368" height="468" fill="none" stroke="#B08A46" stroke-width="2" stroke-dasharray="6 8"/>
     <g fill="none" stroke="#B08A46" stroke-width="2">
       <circle cx="200" cy="215" r="46"/>
       <path d="M120 330 L175 250 L215 300 L250 260 L300 330 Z"/>
     </g>
-    <text x="200" y="410" text-anchor="middle" font-family="Georgia, serif" font-size="20" fill="#1B2A4A">${text}</text>
-    <text x="200" y="436" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" letter-spacing="2" fill="#8A6A32">IMAGE COMING SOON</text>
+    <text x="200" y="410" text-anchor="middle" font-family="Georgia, serif" font-size="20" fill="#4A1D42">${text}</text>
+    <text x="200" y="436" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" letter-spacing="2" fill="#5F5560">IMAGE COMING SOON</text>
   </svg>`;
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }

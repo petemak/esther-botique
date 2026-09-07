@@ -151,7 +151,7 @@ function mediaCard() {
     ]),
     el('p', { class: 'hint', text: 'We re-encode on upload to meet the size budget (full ≤ ~300 KB / 2000px, thumb ≤ ~60 KB / 800px), strip EXIF and convert to WebP.' }),
   ]);
-  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = '#f0ece2'; });
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = 'var(--color-bg-sink)'; });
   drop.addEventListener('dragleave', () => { drop.style.background = ''; });
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.style.background = ''; uploadFiles(e.dataTransfer.files); });
 

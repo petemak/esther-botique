@@ -21,8 +21,10 @@ test.describe('storefront', () => {
     const errors = trackErrors(page);
     await page.goto('/');
 
+    await expect(page.locator('#main h1')).toHaveCount(1);
     await expect(page.locator('h1')).toContainText('Style worth the wait');
-    await expect(page.locator('header .brand')).toHaveText('House of Esther');
+    await expect(page.locator('header .brand')).toHaveAttribute('aria-label', /House of Esther/);
+    await expect(page.locator('header .brand svg')).toBeVisible();
 
     // hero CTA
     await page.getByRole('link', { name: /shop new in/i }).first().click();
@@ -30,6 +32,100 @@ test.describe('storefront', () => {
     await expect(page.locator('h1')).toBeVisible();
 
     expect(errors).toEqual([]);
+  });
+
+  test('homepage hero: real <img> backdrop (not a CSS background) + full-bleed structure', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/');
+    await page.waitForSelector('.hero');
+
+    const heroImg = page.locator('.hero__media img');
+    await expect(heroImg).toHaveCount(1);
+    await expect(heroImg).toHaveAttribute('src', /\/seed\/img_hero1-2000\.jpg/);
+    await expect(heroImg).toHaveAttribute('loading', 'eager');
+    await expect(heroImg).toHaveAttribute('fetchpriority', 'high');
+    await expect(heroImg).toHaveAttribute('alt', /.+/); // non-empty
+    expect(await heroImg.evaluate((n) => n.naturalWidth)).toBeGreaterThan(0);
+
+    // no CSS background-image anywhere in the hero (LCP + a11y — must stay an <img>)
+    const bgImages = await page.evaluate(() =>
+      ['.hero', '.hero__media', '.hero__inner', '.hero__content'].map((sel) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).backgroundImage : 'none';
+      })
+    );
+    expect(bgImages.every((v) => v === 'none')).toBe(true);
+
+    // full-bleed: hero spans the viewport width
+    const w = await page.locator('.hero').evaluate((n) => n.getBoundingClientRect().width);
+    expect(w).toBeGreaterThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth) - 1);
+  });
+
+  test('homepage header: transparent over hero, swaps to solid the instant the hero CONTENT TOP reaches the header (IntersectionObserver on a sentinel), reverses on scroll up', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/');
+    await page.waitForSelector('.hero');
+    const header = page.locator('.site-header');
+    await expect(page.locator('body')).toHaveClass(/has-transparent-header/);
+    await expect(header).toHaveClass(/site-header--transparent/);
+
+    // at the top: transparent (not solid), header bg is see-through
+    await page.waitForTimeout(250); // observer arms after 2 rAF
+    await expect(header).not.toHaveClass(/is-solid/);
+    const bgTop = await header.evaluate((n) => getComputedStyle(n).backgroundColor);
+    expect(bgTop === 'rgba(0, 0, 0, 0)' || bgTop === 'transparent').toBe(true);
+
+    // zero-height sentinel is the FIRST child of .hero__content (before the eyebrow);
+    // the observer watches it so the swap fires on the content's TOP edge.
+    await expect(page.locator('.hero__content > .hero__sentinel:first-child')).toHaveCount(1);
+
+    // small scroll: the sentinel (content top) is still well below the header -> transparent
+    await page.evaluate(() => window.scrollBy(0, 30));
+    await expect(header).not.toHaveClass(/is-solid/);
+
+    // scroll on: the moment the hero content's TOP reaches the header -> solid,
+    // with most of the hero section (photo + content) still on screen. Previously the
+    // header stayed transparent while the eyebrow/headline slid under the nav here.
+    await page.evaluate(() => {
+      const s = document.querySelector('.hero__sentinel');
+      window.scrollBy(0, s.getBoundingClientRect().top + 8);
+    });
+    const heroH = await page.locator('.hero').evaluate((n) => n.getBoundingClientRect().height);
+    expect(await page.evaluate(() => window.scrollY)).toBeLessThan(heroH);
+    await expect(header).toHaveClass(/is-solid/);
+    await expect(header).toHaveCSS('background-color', 'rgb(247, 241, 247)'); // Orchid Mist
+
+    // keep scrolling past the whole hero -> still solid
+    await page.evaluate(() => window.scrollTo(0, document.querySelector('.hero').getBoundingClientRect().height + 300));
+    await expect(header).toHaveClass(/is-solid/);
+
+    // scroll back to top -> transparent again
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(header).not.toHaveClass(/is-solid/);
+
+    // non-home pages never get the transparent state
+    await page.goto('/women.html');
+    await expect(page.locator('body')).not.toHaveClass(/has-transparent-header/);
+    await expect(page.locator('.site-header')).not.toHaveClass(/site-header--transparent/);
+  });
+
+  test('header brand mark is the bold monogram SVG, prominent (>= 32px)', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/');
+    const mark = page.locator('.site-header .brand__mark');
+    await expect(mark).toBeVisible();
+    expect(await mark.evaluate((n) => n.tagName.toLowerCase())).toBe('svg');
+    const h = await mark.evaluate((n) => n.getBoundingClientRect().height);
+    expect(h).toBeGreaterThanOrEqual(32);
+    // bold variant: viewBox 0 0 120 132, single knocked-out path (fill-rule evenodd)
+    expect(await mark.getAttribute('viewBox')).toBe('0 0 120 132');
+    await expect(mark.locator('path[fill-rule="evenodd"]')).toHaveCount(1);
+    // recolours via currentColor -> Orchid Mist over the hero, Aubergine on the solid header
+    expect(await mark.evaluate((n) => getComputedStyle(n).color)).toBe('rgb(247, 241, 247)');
+    await page.goto('/women.html');
+    expect(
+      await page.locator('.site-header .brand__mark').evaluate((n) => getComputedStyle(n).color)
+    ).toBe('rgb(74, 29, 66)');
   });
 
   test('announcement bar dismiss works', async ({ page }) => {
@@ -93,10 +189,18 @@ test.describe('storefront', () => {
     const add = page.locator('#add-to-cart');
     await expect(add).toBeDisabled();
 
+    // no stock cue (and no stray bullet) before a variant is chosen
+    const cue = page.locator('#stock-cue');
+    await expect(cue).toBeHidden();
+    await expect(cue).toHaveText('');
+    const bulletBefore = await cue.evaluate((n) => getComputedStyle(n, '::before').content);
+    expect(bulletBefore === 'none' || bulletBefore === 'normal').toBeTruthy();
+
     await page.getByRole('button', { name: 'Sand', exact: true }).click();
     await page.getByRole('button', { name: 'M', exact: true }).click();
     await expect(add).toBeEnabled();
-    await expect(page.locator('#stock-cue')).toContainText(/in stock/i);
+    await expect(cue).toBeVisible();
+    await expect(cue).toContainText(/in stock/i);
 
     // size guide modal
     await page.getByRole('button', { name: /find your size/i }).click();
@@ -216,6 +320,39 @@ test.describe('storefront', () => {
     await expect(page.getByText(/Discount \(WELCOME10\)/)).toBeVisible();
   });
 
+  test('cart page: delivery-estimate widget keeps the typed town + picked county across the quote and a re-render', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/product.html?slug=orin-linen-dress');
+    await page.getByRole('button', { name: 'Sand', exact: true }).click();
+    await page.getByRole('button', { name: 'M', exact: true }).click();
+    await page.locator('#add-to-cart').click();
+    await page.locator('#cart-drawer').getByRole('link', { name: 'View cart' }).click();
+    await expect(page).toHaveURL(/cart\.html/);
+
+    // Reproduce the bug steps: type a town, then pick a county (fires the quote).
+    await page.fill('#cart-town', 'Kileleshwa');
+    await page.selectOption('#cart-county', 'Nairobi');
+
+    // The quote figures update in place (no full re-render).
+    await expect(page.locator('#sum-delivery')).toHaveText('KES 300');
+    await expect(page.locator('#sum-total')).toHaveText('KES 5,700');
+
+    // The widget must NOT snap back — both fields retain what the shopper entered.
+    await expect(page.locator('#cart-county')).toHaveValue('Nairobi');
+    await expect(page.locator('#cart-town')).toHaveValue('Kileleshwa');
+
+    // The picker stays expanded.
+    await expect(page.locator('#cart-town')).toBeVisible();
+
+    // A legitimate full re-render (quantity change) must still keep the location.
+    const qty = page.locator('#view .line-item input[type="number"]').first();
+    await qty.fill('2');
+    await qty.blur();
+    await expect(page.locator('#view .line-item strong').first()).toContainText('KES 10,800');
+    await expect(page.locator('#cart-county')).toHaveValue('Nairobi');
+    await expect(page.locator('#cart-town')).toHaveValue('Kileleshwa');
+  });
+
   test('checkout empty-cart state has exactly one h1 and stays noindex', async ({ page }) => {
     await installMockApi(page); // mock starts with an empty cart
     await page.goto('/checkout.html');
@@ -255,6 +392,39 @@ test.describe('storefront', () => {
       await expect(page.locator('#main h1')).toHaveCount(1);
       const ld = page.locator('script[type="application/ld+json"]');
       expect(await ld.count()).toBeGreaterThan(0);
+    }
+  });
+
+  test('no stray "null"/"undefined"/"false" text nodes leak into the DOM', async ({ page }) => {
+    await installMockApi(page);
+    // seed products carry rating {average:0,count:0} and empty colour/size facets,
+    // which is exactly what produced the `null` / `nullnull` text-node regression.
+    const routes = [
+      '/product.html?slug=orin-linen-dress', // rating {count:0} -> buy-box conditional hits the : null branch
+      '/watches.html', // empty colour + size + subcategory facets -> filter panel null groups
+      '/women.html',
+      '/',
+      '/cart.html',
+      '/checkout.html',
+      '/journal.html',
+    ];
+    for (const route of routes) {
+      await page.goto(route);
+      await page.waitForTimeout(250);
+      const strays = await page.evaluate(() => {
+        const root = document.querySelector('#main') || document.body;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const bad = [];
+        let n;
+        while ((n = walker.nextNode())) {
+          const t = n.nodeValue.trim();
+          if (t === 'null' || t === 'undefined' || t === 'false') {
+            bad.push({ text: t, parent: n.parentElement && n.parentElement.className });
+          }
+        }
+        return bad;
+      });
+      expect(strays, `stray literal text nodes on ${route}`).toEqual([]);
     }
   });
 
@@ -298,6 +468,79 @@ test.describe('storefront', () => {
       expect(errors).toEqual([]);
     });
   }
+});
+
+test.describe('brand (Orchid & Aubergine rebrand)', () => {
+  test('new palette tokens are wired and old ones are gone', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/');
+    const tok = await page.evaluate(() => {
+      const s = getComputedStyle(document.documentElement);
+      return {
+        primary: s.getPropertyValue('--color-primary').trim(),
+        cta: s.getPropertyValue('--color-cta').trim(),
+        bg: s.getPropertyValue('--color-bg').trim(),
+        oldNavy: s.getPropertyValue('--ink-navy').trim(),
+        oldBone: s.getPropertyValue('--bone').trim(),
+      };
+    });
+    expect(tok.primary.toLowerCase()).toBe('#4a1d42');
+    expect(tok.cta.toLowerCase()).toBe('#9e3c88');
+    expect(tok.bg.toLowerCase()).toBe('#f7f1f7');
+    expect(tok.oldNavy).toBe('');
+    expect(tok.oldBone).toBe('');
+
+    // footer ground is Aubergine
+    const footerBg = await page.locator('.site-footer').evaluate((n) => getComputedStyle(n).backgroundColor);
+    expect(footerBg).toBe('rgb(74, 29, 66)');
+
+    // primary button (hero CTA) = Orchid fill / white label
+    const btnStyle = await page.locator('.hero .btn').first().evaluate((n) => {
+      const c = getComputedStyle(n);
+      return { bg: c.backgroundColor, color: c.color };
+    });
+    expect(btnStyle.bg).toBe('rgb(158, 60, 136)');
+    expect(btnStyle.color).toBe('rgb(255, 255, 255)');
+
+    // solid header ground is Orchid Mist (non-home page — home header starts transparent)
+    await page.goto('/women.html');
+    const headerBg = await page.locator('.site-header').evaluate((n) => getComputedStyle(n).backgroundColor);
+    expect(headerBg).toBe('rgb(247, 241, 247)');
+  });
+
+  test('real logo mark replaces the text wordmark; favicon + manifest wired', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/');
+    await expect(page.locator('header .brand svg[aria-label="House of Esther"]')).toBeVisible();
+    await expect(page.locator('.site-footer .footer-brand svg[aria-label="House of Esther"]')).toBeVisible();
+
+    await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', /favicon\.svg/);
+    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', /apple-touch-icon\.png/);
+    await expect(page.locator('link[rel="manifest"]')).toHaveCount(1);
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#4A1D42');
+  });
+
+  test('seed photos load on the home page (hero + category tiles)', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/');
+    const hero = page.locator('.hero__media img');
+    await expect(hero).toHaveAttribute('src', /\/seed\/img_hero1-2000\.jpg/);
+    await expect
+      .poll(() => hero.evaluate((n) => n.naturalWidth))
+      .toBeGreaterThan(0);
+
+    const tile = page.locator('.tile img').first();
+    await expect(tile).toHaveAttribute('src', /\/seed\//);
+    await expect.poll(() => tile.evaluate((n) => n.naturalWidth)).toBeGreaterThan(0);
+  });
+
+  test('seed photos load on a PDP gallery', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/product.html?slug=orin-linen-dress');
+    const main = page.locator('.gallery__main img');
+    await expect(main).toHaveAttribute('src', /\/seed\/img_orin1-2000\.jpg/);
+    await expect.poll(() => main.evaluate((n) => n.naturalWidth)).toBeGreaterThan(0);
+  });
 });
 
 test.describe('admin', () => {

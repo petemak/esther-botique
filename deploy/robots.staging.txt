@@ -1,0 +1,5 @@
+# Non-indexable deploy (staging, and production until its custom domain is
+# attached). Serve a real production robots.txt + sitemap.xml only from the
+# real production domain — never from a *.netlify.app host.
+User-agent: *
+Disallow: /

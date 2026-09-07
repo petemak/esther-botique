@@ -2,9 +2,10 @@ import { api } from '../api.js';
 import { el, clear, imageEl, escapeHtml } from '../dom.js';
 import { productCard } from '../components.js';
 import { formatDate, injectJsonLd } from '../util.js';
-import { bootStorefront, view, renderError } from './_boot.js';
+import { bootStorefront, view, renderError, armHeaderScrollState } from './_boot.js';
 
-bootStorefront({ active: '' });
+document.body.classList.add('page-home');
+bootStorefront({ active: '', transparentHeader: true });
 init();
 
 async function init() {
@@ -12,8 +13,9 @@ async function init() {
   try {
     const content = await api.getHomeContent();
     clear(root);
+    const heroEl = hero(content.hero);
     root.append(
-      hero(content.hero),
+      heroEl,
       trustStrip(),
       content.categoryTiles && content.categoryTiles.length ? categoryTiles(content.categoryTiles) : categoryTilesFallback(),
       railSection('New In', 'Just arrived, chosen with care.', '/new-in.html', 'new-arrivals'),
@@ -31,20 +33,39 @@ async function init() {
       areaServed: 'KE',
       paymentAccepted: ['M-Pesa', 'Cash on delivery'],
     });
+    // Header overlays the hero photo; swap to the solid header the instant the TOP of
+    // the hero content (a zero-height sentinel before the eyebrow) reaches the header —
+    // so the eyebrow/headline/CTA scroll under a SOLID header, never under the
+    // transparent one where the nav links would overlap them.
+    const heroSentinel = heroEl && heroEl.querySelector('.hero__sentinel');
+    if (heroSentinel) armHeaderScrollState(heroSentinel);
   } catch (err) {
     renderError(err, init);
   }
 }
 
+/**
+ * Full-bleed hero: real <img> backdrop (kept an <img>, not a CSS background, for LCP +
+ * a11y), Aubergine section behind it, bottom scrim for legibility, content bottom-aligned
+ * in Orchid Mist. Home only.
+ */
 function hero(h) {
   if (!h) return el('div');
+  const img = imageEl(h.image, { full: true, eager: true, altFallback: 'House of Esther — new-season pieces' });
+  img.setAttribute('fetchpriority', 'high');
+  img.width = (h.image && h.image.width) || 2000;
+  img.height = (h.image && h.image.height) || 1200;
+
   return el('section', { class: 'hero', 'aria-labelledby': 'hero-h' }, [
-    el('div', { class: 'hero__media' }, [imageEl(h.image, { full: true, eager: true, altFallback: 'House of Esther' })]),
-    el('div', { class: 'hero__panel stack' }, [
-      el('p', { class: 'eyebrow', text: 'House of Esther' }),
-      el('h1', { id: 'hero-h', text: h.headline || 'Style worth the wait' }),
-      el('p', { class: 'lede', text: h.subcopy || 'Curated pieces, honest sizing, delivered to your door.' }),
-      h.ctaHref ? el('a', { class: 'btn', href: normalize(h.ctaHref), text: h.ctaLabel || 'Shop new in' }) : null,
+    el('div', { class: 'hero__media' }, [img]),
+    el('div', { class: 'hero__inner wrap' }, [
+      el('div', { class: 'hero__content' }, [
+        el('div', { class: 'hero__sentinel', 'aria-hidden': 'true' }),
+        el('p', { class: 'eyebrow', text: 'House of Esther' }),
+        el('h1', { id: 'hero-h', text: h.headline || 'Style worth the wait' }),
+        el('p', { class: 'lede', text: h.subcopy || 'Curated pieces, honest sizing, delivered to your door.' }),
+        h.ctaHref ? el('a', { class: 'btn', href: normalize(h.ctaHref), text: h.ctaLabel || 'Shop new in' }) : null,
+      ]),
     ]),
   ]);
 }

@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 660" font-family="Georgia, 'Times New Roman', serif">
+  <rect width="1120" height="660" fill="#ffffff"/>
+  <text x="30" y="40" font-size="21" font-weight="700" fill="#241E24">Three feminine palette options — pick one (logo concept unchanged)</text>
+
+  <!-- ================= OPTION A ================= -->
+  <text x="30" y="78" font-size="15" font-weight="700" fill="#241E24">A · Rosewater &amp; Garnet</text>
+  <text x="30" y="96" font-size="11" fill="#777">grown-up feminine · warm · quietly luxurious</text>
+  <rect x="30" y="106" width="330" height="168" fill="#FBF1EE" stroke="#e5e5e5"/>
+  <g transform="translate(96 112) scale(0.6)" color="#7A1F3D">
+    <g transform="translate(97 8) scale(0.9)">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+    <text x="160" y="205" text-anchor="middle" fill="currentColor" font-size="16" font-weight="500" letter-spacing="7.5">HOUSE OF</text>
+    <text x="160" y="250" text-anchor="middle" fill="currentColor" font-size="44" font-weight="600" letter-spacing="3">ESTHER</text>
+  </g>
+  <g font-size="9" fill="#555">
+    <rect x="30"  y="286" width="60" height="40" fill="#7A1F3D"/><text x="30" y="338">Garnet</text><text x="30" y="349">#7A1F3D</text>
+    <rect x="98"  y="286" width="60" height="40" fill="#FBF1EE" stroke="#e5e5e5"/><text x="98" y="338">Rosewater</text><text x="98" y="349">#FBF1EE</text>
+    <rect x="166" y="286" width="60" height="40" fill="#9E2A54"/><text x="166" y="338">Raspberry</text><text x="166" y="349">#9E2A54</text>
+    <rect x="234" y="286" width="60" height="40" fill="#2A1E22"/><text x="234" y="338">Cocoa Ink</text><text x="234" y="349">#2A1E22</text>
+    <rect x="302" y="286" width="58" height="40" fill="#B08A46"/><text x="302" y="338">Gold</text><text x="302" y="349">#B08A46</text>
+  </g>
+  <g transform="translate(30 366)">
+    <rect x="0" y="0" width="330" height="46" fill="#FBF1EE" stroke="#e5e5e5"/>
+    <g transform="translate(12 9) scale(0.14)" color="#7A1F3D">
+      <g transform="translate(97 8) scale(0.9)">
+        <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+        <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+      </g>
+    </g>
+    <text x="52" y="28" font-size="14" font-weight="600" letter-spacing="2.5" fill="#7A1F3D">ESTHER</text>
+    <text x="150" y="28" font-size="9" letter-spacing="1" fill="#2A1E22">WOMEN</text>
+    <text x="196" y="28" font-size="9" letter-spacing="1" fill="#9E2A54">SALE</text>
+    <rect x="244" y="11" width="76" height="24" rx="2" fill="#9E2A54"/>
+    <text x="282" y="27" text-anchor="middle" font-size="9" letter-spacing="1" fill="#FBF1EE">SHOP</text>
+  </g>
+  <text x="30" y="432" font-size="9.5" fill="#777">AA ✓ · risk: garnet+gold can drift "regal heritage" — keep layouts airy</text>
+
+  <!-- ================= OPTION B ================= -->
+  <text x="395" y="78" font-size="15" font-weight="700" fill="#241E24">B · Coral Blush &amp; Clay</text>
+  <text x="395" y="96" font-size="11" fill="#777">warmest &amp; friendliest · vivid · earthy-boutique</text>
+  <rect x="395" y="106" width="330" height="168" fill="#FBEFEA" stroke="#e5e5e5"/>
+  <g transform="translate(461 112) scale(0.6)" color="#9C3A2E">
+    <g transform="translate(97 8) scale(0.9)">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+    <text x="160" y="205" text-anchor="middle" fill="currentColor" font-size="16" font-weight="500" letter-spacing="7.5">HOUSE OF</text>
+    <text x="160" y="250" text-anchor="middle" fill="currentColor" font-size="44" font-weight="600" letter-spacing="3">ESTHER</text>
+  </g>
+  <g font-size="9" fill="#555">
+    <rect x="395" y="286" width="60" height="40" fill="#9C3A2E"/><text x="395" y="338">Clay Rose</text><text x="395" y="349">#9C3A2E</text>
+    <rect x="463" y="286" width="60" height="40" fill="#FBEFEA" stroke="#e5e5e5"/><text x="463" y="338">Shell</text><text x="463" y="349">#FBEFEA</text>
+    <rect x="531" y="286" width="60" height="40" fill="#B23A5E"/><text x="531" y="338">Deep Rose</text><text x="531" y="349">#B23A5E</text>
+    <rect x="599" y="286" width="60" height="40" fill="#2B211C"/><text x="599" y="338">Espresso</text><text x="599" y="349">#2B211C</text>
+    <rect x="667" y="286" width="58" height="40" fill="#B08A46"/><text x="667" y="338">Gold</text><text x="667" y="349">#B08A46</text>
+  </g>
+  <g transform="translate(395 366)">
+    <rect x="0" y="0" width="330" height="46" fill="#FBEFEA" stroke="#e5e5e5"/>
+    <g transform="translate(12 9) scale(0.14)" color="#9C3A2E">
+      <g transform="translate(97 8) scale(0.9)">
+        <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+        <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+      </g>
+    </g>
+    <text x="52" y="28" font-size="14" font-weight="600" letter-spacing="2.5" fill="#9C3A2E">ESTHER</text>
+    <text x="150" y="28" font-size="9" letter-spacing="1" fill="#2B211C">WOMEN</text>
+    <text x="196" y="28" font-size="9" letter-spacing="1" fill="#B23A5E">SALE</text>
+    <rect x="244" y="11" width="76" height="24" rx="2" fill="#B23A5E"/>
+    <text x="282" y="27" text-anchor="middle" font-size="9" letter-spacing="1" fill="#FBEFEA">SHOP</text>
+  </g>
+  <text x="395" y="432" font-size="9.5" fill="#777">AA ✓ · risk: most trend-coded — can tip "seasonal/boho", hardest to keep premium</text>
+
+  <!-- ================= OPTION C ================= -->
+  <text x="760" y="78" font-size="15" font-weight="700" fill="#241E24">C · Orchid &amp; Aubergine</text>
+  <text x="760" y="96" font-size="11" fill="#777">cooler · fashion-forward · editorial</text>
+  <rect x="760" y="106" width="330" height="168" fill="#F7F1F7" stroke="#e5e5e5"/>
+  <g transform="translate(826 112) scale(0.6)" color="#4A1D42">
+    <g transform="translate(97 8) scale(0.9)">
+      <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+      <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+    </g>
+    <text x="160" y="205" text-anchor="middle" fill="currentColor" font-size="16" font-weight="500" letter-spacing="7.5">HOUSE OF</text>
+    <text x="160" y="250" text-anchor="middle" fill="currentColor" font-size="44" font-weight="600" letter-spacing="3">ESTHER</text>
+  </g>
+  <g font-size="9" fill="#555">
+    <rect x="760" y="286" width="60" height="40" fill="#4A1D42"/><text x="760" y="338">Aubergine</text><text x="760" y="349">#4A1D42</text>
+    <rect x="828" y="286" width="60" height="40" fill="#F7F1F7" stroke="#e5e5e5"/><text x="828" y="338">Orchid Mist</text><text x="828" y="349">#F7F1F7</text>
+    <rect x="896" y="286" width="60" height="40" fill="#9E3C88"/><text x="896" y="338">Orchid</text><text x="896" y="349">#9E3C88</text>
+    <rect x="964" y="286" width="60" height="40" fill="#241F27"/><text x="964" y="338">Ink</text><text x="964" y="349">#241F27</text>
+    <rect x="1032" y="286" width="58" height="40" fill="#B08A46"/><text x="1032" y="338">Gold</text><text x="1032" y="349">#B08A46</text>
+  </g>
+  <g transform="translate(760 366)">
+    <rect x="0" y="0" width="330" height="46" fill="#F7F1F7" stroke="#e5e5e5"/>
+    <g transform="translate(12 9) scale(0.14)" color="#4A1D42">
+      <g transform="translate(97 8) scale(0.9)">
+        <path d="M10 150 V70 A60 60 0 0 1 130 70 V150 Z" fill="none" stroke="currentColor" stroke-width="13" stroke-linejoin="round"/>
+        <path d="M46 42 H96 V56 H61 V72 H87 V84 H61 V104 H96 V118 H46 Z" fill="currentColor"/>
+      </g>
+    </g>
+    <text x="52" y="28" font-size="14" font-weight="600" letter-spacing="2.5" fill="#4A1D42">ESTHER</text>
+    <text x="150" y="28" font-size="9" letter-spacing="1" fill="#241F27">WOMEN</text>
+    <text x="196" y="28" font-size="9" letter-spacing="1" fill="#9E3C88">SALE</text>
+    <rect x="244" y="11" width="76" height="24" rx="2" fill="#9E3C88"/>
+    <text x="282" y="27" text-anchor="middle" font-size="9" letter-spacing="1" fill="#F7F1F7">SHOP</text>
+  </g>
+  <text x="760" y="432" font-size="9.5" fill="#777">AA ✓ · risk: lilac ground can read "beauty brand" — aubergine must anchor every screen</text>
+
+  <text x="30" y="470" font-size="11" fill="#241E24">Warmest → softest: <tspan font-weight="700">B</tspan>   ·   warm but restrained: <tspan font-weight="700">A</tspan>   ·   coolest / most modern: <tspan font-weight="700">C</tspan>. All keep Fraunces + Inter and the arch-and-E mark.</text>
+</svg>

@@ -47,7 +47,7 @@ export function openLightbox(images, startIndex = 0) {
   let index = startIndex;
   const dialog = el('dialog', { class: 'lightbox', 'aria-label': 'Image viewer' });
   const img = el('img', { class: 'lightbox__img', alt: '' });
-  const counter = el('span', { style: 'color:#fff' });
+  const counter = el('span', { style: 'color:var(--color-surface)' });
 
   function show() {
     const current = images[index];

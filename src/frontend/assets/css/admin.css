@@ -1,7 +1,7 @@
 /* House of Esther — admin back-office */
 
 .admin-body {
-  background: #eef1f6;
+  background: var(--color-bg);
 }
 
 .admin-shell {
@@ -16,14 +16,27 @@
 }
 
 .admin-sidebar {
-  background: var(--ink-navy);
-  color: var(--bone);
+  background: var(--color-primary);
+  color: var(--color-bg);
   padding: var(--space-s);
 }
 .admin-sidebar .brand {
-  color: var(--bone);
-  display: block;
+  color: var(--color-bg);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
   margin-bottom: var(--space-m);
+  text-decoration: none;
+}
+.admin-sidebar .brand__mark {
+  height: 1.75rem;
+  width: auto;
+  flex: none;
+}
+.admin-sidebar .brand__word {
+  font-family: var(--font-display);
+  font-size: var(--step-0);
+  font-weight: 600;
 }
 .admin-sidebar nav ul {
   list-style: none;
@@ -34,7 +47,7 @@
 .admin-sidebar a {
   display: block;
   padding: var(--space-2xs) var(--space-xs);
-  color: var(--bone);
+  color: var(--color-bg);
   text-decoration: none;
   border-radius: var(--radius);
   font-size: var(--step--1);
@@ -66,7 +79,7 @@
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
 .stat {
-  background: var(--white);
+  background: var(--color-surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-m);
@@ -74,19 +87,19 @@
 .stat__value {
   font-family: var(--font-display);
   font-size: var(--step-3);
-  color: var(--ink-navy);
+  color: var(--color-primary);
 }
 .stat__label {
   font-size: var(--step--1);
   color: var(--text-muted);
 }
 .stat--alert {
-  border-color: var(--warm-clay-dark);
+  border-color: var(--color-danger);
 }
 
 .admin-table-wrap {
   overflow-x: auto;
-  background: var(--white);
+  background: var(--color-surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
 }
@@ -103,13 +116,13 @@ table.admin-table {
   white-space: nowrap;
 }
 .admin-table th {
-  background: #f6f4ef;
+  background: var(--color-bg);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.7rem;
 }
 .admin-table tbody tr:hover {
-  background: #faf8f4;
+  background: var(--color-bg-sink);
 }
 .admin-table img {
   width: 2.5rem;
@@ -144,7 +157,7 @@ table.admin-table {
   }
 }
 .admin-section-card {
-  background: var(--white);
+  background: var(--color-surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-m);
@@ -156,7 +169,7 @@ table.admin-table {
 }
 .sticky-savebar {
   margin-top: var(--space-m);
-  background: var(--white);
+  background: var(--color-surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-s);
@@ -187,11 +200,11 @@ table.admin-table {
 }
 
 .uploader-drop {
-  border: 2px dashed var(--brass-dark);
+  border: 2px dashed var(--color-cta);
   border-radius: var(--radius-lg);
   padding: var(--space-l);
   text-align: center;
-  background: #faf8f4;
+  background: var(--color-bg-sink);
 }
 .uploader-grid {
   display: grid;
@@ -203,7 +216,7 @@ table.admin-table {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   padding: var(--space-2xs);
-  background: var(--white);
+  background: var(--color-surface);
 }
 .uploader-item img {
   aspect-ratio: 4 / 5;
@@ -219,7 +232,7 @@ table.admin-table {
 .rich-editor {
   border: 1.5px solid var(--hairline);
   border-radius: var(--radius);
-  background: var(--white);
+  background: var(--color-surface);
 }
 .rich-editor__toolbar {
   display: flex;
@@ -231,7 +244,7 @@ table.admin-table {
   min-width: 2rem;
   height: 2rem;
   border: 1px solid var(--hairline);
-  background: var(--bone);
+  background: var(--color-bg);
   border-radius: 2px;
   cursor: pointer;
   font-weight: 700;
@@ -246,9 +259,9 @@ table.admin-table {
 }
 
 .readonly-panel {
-  background: #f6f4ef;
+  background: var(--color-bg);
   border: 1px solid var(--hairline);
-  border-left: 3px solid var(--brass-dark);
+  border-left: 3px solid var(--color-cta);
   border-radius: var(--radius);
   padding: var(--space-s);
   font-size: var(--step--1);

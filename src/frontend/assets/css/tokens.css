@@ -1,29 +1,37 @@
-/* House of Esther — design tokens (from design-spec.md §0) */
+/* House of Esther — design tokens (design-spec.md §0 "Design tokens" — authoritative).
+   Orchid & Aubergine palette. Every earlier colour (Ink Navy, Bone, Warm Clay, Brass,
+   the interim Emerald/Plum) is removed. */
 :root {
-  /* Brand colour */
-  --ink-navy: #1b2a4a;
-  --ink-navy-90: #2a3a5c;
-  --warm-clay: #c56a4e;
-  --warm-clay-dark: #a4482f; /* AA-safe on Bone for text */
-  --bone: #f4eee4;
-  --bone-dark: #e7ded0;
-  --brass: #b08a46;
-  --brass-dark: #8a6a32; /* AA-safe on Bone for small text/icons */
-  --white: #ffffff;
-  --functional-black: #111111;
+  /* ---- Brand palette ---- */
+  --color-primary: #4a1d42; /* Aubergine — logo, header/nav, footer, ALL headings */
+  --color-cta: #9e3c88; /* Orchid — buttons, links, focus ring, in-stock/success. Full saturation, never tinted */
+  --color-bg: #f7f1f7; /* Orchid Mist — page ground */
+  --color-text: #241f27; /* Blackcurrant Ink — body + UI copy (14.5:1 on bg) */
+  --color-surface: #ffffff; /* White — cards, image grounds, text on jewel fills */
+  --color-hairline: #ded5de; /* Mauve Grey — borders, dividers, disabled fills only. Never text */
+  --color-danger: #a82838; /* Ruby — sale prices, form errors, sale/error badges (6.2:1 on bg) */
+  --color-accent: #b08a46; /* Antique Gold — decorative only, <10%: fine rules, "New In" tag, foil. Never informational */
 
-  --ink-on-bone: var(--ink-navy);
-  --text: #1b2a4a;
-  --text-muted: #4a4a4a;
-  --hairline: rgba(176, 138, 70, 0.4);
-  --focus-ring: #b08a46;
+  /* ---- Derived (kept saturated / AA) ---- */
+  --color-primary-hover: #5d2b54; /* aubergine fill hover */
+  --color-cta-hover: #862f73; /* orchid fill hover — still full-ish saturation, not a tint */
+  --color-bg-sink: #ede2ed; /* deeper lilac: image grounds, skeletons, drag targets */
+  --color-tint-cta: #f2e4ef; /* orchid-tinted panel wash (alerts) */
+  --color-tint-danger: #f7e3e5;
+  --color-tint-gold: #f4ecda;
 
-  --ok: #2f6f4f;
-  --warn: #8a5a1a;
-  --err: #a4282a;
-  --info: #2a4a7a;
+  --text: var(--color-text);
+  --text-muted: #5f5560; /* muted UI copy — 6.8:1 on bg, 7.7:1 on white */
+  --hairline: var(--color-hairline);
+  --focus-ring: var(--color-cta);
 
-  /* Type */
+  /* functional state colours (kept strictly on-palette) */
+  --ok: var(--color-cta); /* in-stock / success = Orchid */
+  --warn: var(--color-danger); /* low-stock urgency = Ruby (text label also says "2 left") */
+  --err: var(--color-danger);
+  --info: var(--color-primary);
+
+  /* ---- Type ---- */
   --font-display: "Fraunces", "Playfair Display", Georgia, "Times New Roman", serif;
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -34,7 +42,7 @@
   --step-3: clamp(1.7rem, 1.4rem + 1.6vw, 2.4rem);
   --step-4: clamp(2.1rem, 1.6rem + 2.6vw, 3.2rem);
 
-  /* Space */
+  /* ---- Space ---- */
   --space-3xs: 0.25rem;
   --space-2xs: 0.5rem;
   --space-xs: 0.75rem;
@@ -50,8 +58,8 @@
   --radius: 4px;
   --radius-lg: 8px;
 
-  --shadow-1: 0 1px 3px rgba(27, 42, 74, 0.08), 0 6px 20px rgba(27, 42, 74, 0.06);
-  --shadow-2: 0 8px 40px rgba(27, 42, 74, 0.18);
+  --shadow-1: 0 1px 3px rgba(74, 29, 66, 0.1), 0 6px 20px rgba(74, 29, 66, 0.08);
+  --shadow-2: 0 8px 40px rgba(36, 31, 39, 0.22);
 
   --transition: 180ms ease;
   --header-h: 3.5rem;
