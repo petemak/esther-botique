@@ -293,9 +293,14 @@
   (let [{:keys [admin-email admin-name admin-password]} (:seed cfg)]
     (when-not admin-password
       (throw (ex-info "SEED_ADMIN_PASSWORD must be set to seed the admin user" {})))
-    (db/exec! conn ["insert into admin_users (id, name, email, password_hash, role)
-                     values ('usr_admin1', ?, ?, ?, 'admin')
-                     on conflict (email) do update set password_hash = excluded.password_hash, name = excluded.name"
+    (db/exec! conn ["insert into admin_users (id, name, email, password_hash, role, status, must_change_password)
+                     values ('usr_admin1', ?, ?, ?, 'owner', 'active', false)
+                     on conflict (id) do update set
+                       password_hash = excluded.password_hash,
+                       name = excluded.name,
+                       role = 'owner',
+                       status = 'active',
+                       must_change_password = false"
                     admin-name admin-email (hashers/derive admin-password)])))
 
 (defn -main [& _]

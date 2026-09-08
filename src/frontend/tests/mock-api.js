@@ -164,10 +164,45 @@ const CONTACTS = [
   { reference: 'MSG-2026-0441', name: 'Brian K.', email: 'brian@example.com', phone: '+254700111222', topic: 'product_question', orderNumber: null, message: 'Is the Harlan crossbody strap adjustable?', handled: true, handledAt: '2026-09-12T10:00:00Z', handledBy: 'usr_admin1', createdAt: '2026-09-12T09:30:00Z' },
 ];
 
-/** Attach to a Playwright page. opts.admin=true makes admin/me succeed. */
+const ADMIN_USERS_SEED = [
+  {
+    id: 'usr_admin1',
+    name: 'Esther Wanjiru',
+    email: 'esther@houseofesther.co.ke',
+    role: 'owner',
+    status: 'active',
+    mustChangePassword: false,
+    createdAt: '2026-09-06T09:00:00Z',
+    lastLoginAt: '2026-09-08T07:14:00Z',
+  },
+];
+
+const COMMON_PASSWORDS = new Set(['password', 'password1', '12345678', 'qwertyui', 'letmein1']);
+
+function adminMe(state) {
+  const s = state.session;
+  const u = state.adminUsers.find((x) => x.id === s.userId) || { id: s.userId, name: 'Admin', email: 'admin@houseofesther.co.ke' };
+  return { user: { id: u.id, name: u.name, email: u.email, role: s.role }, mustChangePassword: !!s.mustChangePassword };
+}
+
+/**
+ * Attach to a Playwright page.
+ *  - opts.admin=true               makes admin/me succeed (default role owner)
+ *  - opts.adminRole='staff'|'owner'
+ *  - opts.adminMustChangePassword=true forces the change-password gate
+ *  - opts.adminUserId              which seeded admin the session belongs to
+ */
 export async function installMockApi(page, opts = {}) {
   const state = createMockState();
   state.admin = !!opts.admin;
+  state.adminUsers = ADMIN_USERS_SEED.map((u) => ({ ...u }));
+  state.session = opts.admin
+    ? {
+        userId: opts.adminUserId || 'usr_admin1',
+        role: opts.adminRole || 'owner',
+        mustChangePassword: !!opts.adminMustChangePassword,
+      }
+    : null;
   state.contacts = CONTACTS.map((c) => ({ ...c }));
   state.user = opts.user || null;
 
@@ -431,10 +466,90 @@ export async function installMockApi(page, opts = {}) {
     if (path === '/journal' && method === 'GET') return json(200, { items: [{ slug: 'september-edit', title: 'The September Edit', excerpt: 'Dressing for the in-between season.', tag: 'lookbook', coverImage: IMG('img_j_sept', 'September edit'), publishedAt: '2026-09-01T08:00:00Z' }], page: 1, pageSize: 12, total: 1, totalPages: 1 });
     if (path.match(/^\/journal\/[^/]+$/)) return json(200, { slug: path.split('/')[2], title: 'The September Edit', tag: 'lookbook', heroImage: IMG('img_j_sept', 'September edit'), publishedAt: '2026-09-01T08:00:00Z', bodyHtml: '<p>A note on the season.</p>', shopTheLook: PRODUCTS.map(card), related: [], seo: { title: 'The September Edit — The Journal — House of Esther', description: 'A note.' } });
 
-    // ---- admin ----
-    if (path === '/admin/auth/me') return state.admin ? json(200, { user: { id: 'usr_admin1', name: 'Esther', role: 'admin' } }) : err(401, 'unauthorized', 'Sign in.');
-    if (path === '/admin/auth/login' && method === 'POST') { state.admin = true; return json(200, { user: { id: 'usr_admin1', name: 'Esther', role: 'admin' } }); }
-    if (path === '/admin/auth/logout') { state.admin = false; return route.fulfill({ status: 204, body: '' }); }
+    // ---- admin auth (A1) ----
+    if (path === '/admin/auth/me') return state.session ? json(200, adminMe(state)) : err(401, 'unauthorized', 'Sign in.');
+    if (path === '/admin/auth/login' && method === 'POST') {
+      state.admin = true;
+      state.session = { userId: opts.adminUserId || 'usr_admin1', role: opts.adminRole || 'owner', mustChangePassword: !!opts.adminMustChangePassword };
+      return json(200, adminMe(state));
+    }
+    if (path === '/admin/auth/logout') { state.admin = false; state.session = null; return route.fulfill({ status: 204, body: '' }); }
+    if (path === '/admin/auth/change-password' && method === 'POST') {
+      if (!state.session) return err(401, 'unauthorized', 'Sign in.');
+      const CURRENT_OK = new Set(['Temp-Handover-2026', 'correct horse battery staple', 'old-password-123']);
+      if (!CURRENT_OK.has(body.currentPassword)) {
+        return err(422, 'current_password_incorrect', "That current password doesn't match.");
+      }
+      if (!body.newPassword || body.newPassword.length < 8 || COMMON_PASSWORDS.has(body.newPassword)) {
+        return err(422, 'validation_error', 'Choose at least 8 characters and avoid common passwords.');
+      }
+      state.session.mustChangePassword = false;
+      const u = state.adminUsers.find((x) => x.id === state.session.userId);
+      if (u) u.mustChangePassword = false;
+      return json(200, adminMe(state));
+    }
+
+    // ---- admin team / users (A16, owner-only) ----
+    if (path.startsWith('/admin/users')) {
+      if (!state.session) return err(401, 'unauthorized', 'Sign in.');
+      if (state.session.role !== 'owner') return err(403, 'forbidden', 'Owners only.');
+
+      if (path === '/admin/users' && method === 'GET') {
+        return json(200, { items: state.adminUsers.slice() });
+      }
+      if (path === '/admin/users' && method === 'POST') {
+        if (!body.name || !body.name.trim() || !body.email || !body.role) {
+          return err(422, 'validation_error', 'Name, email and role are all required.');
+        }
+        if (!['owner', 'staff'].includes(body.role)) return err(422, 'validation_error', 'Pick a valid role.');
+        if (!body.initialPassword || body.initialPassword.length < 8 || COMMON_PASSWORDS.has(body.initialPassword)) {
+          return err(422, 'validation_error', 'The initial password must be at least 8 characters and not a common one.');
+        }
+        if (state.adminUsers.some((u) => u.email.toLowerCase() === body.email.toLowerCase())) {
+          return err(409, 'email_taken', 'An admin already uses that email.');
+        }
+        const user = {
+          id: `usr_${Date.now()}`,
+          name: body.name.trim(),
+          email: body.email.toLowerCase(),
+          role: body.role,
+          status: 'active',
+          mustChangePassword: true,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: null,
+        };
+        state.adminUsers.unshift(user);
+        return json(201, user);
+      }
+      const resetMatch = path.match(/^\/admin\/users\/([^/]+)\/reset-password$/);
+      if (resetMatch && method === 'POST') {
+        const u = state.adminUsers.find((x) => x.id === resetMatch[1]);
+        if (!u) return err(404, 'not_found', 'No such admin.');
+        if (!body.newPassword || body.newPassword.length < 8 || COMMON_PASSWORDS.has(body.newPassword)) {
+          return err(422, 'validation_error', 'That password is too weak or too common.');
+        }
+        u.mustChangePassword = true;
+        return json(200, u);
+      }
+      const idMatch = path.match(/^\/admin\/users\/([^/]+)$/);
+      if (idMatch && method === 'PATCH') {
+        const u = state.adminUsers.find((x) => x.id === idMatch[1]);
+        if (!u) return err(404, 'not_found', 'No such admin.');
+        const activeOwners = state.adminUsers.filter((x) => x.role === 'owner' && x.status === 'active');
+        const isLastActiveOwner = u.role === 'owner' && u.status === 'active' && activeOwners.length === 1;
+        if (body.role && !['owner', 'staff'].includes(body.role)) return err(422, 'validation_error', 'Bad role.');
+        if (body.status && !['active', 'disabled'].includes(body.status)) return err(422, 'validation_error', 'Bad status.');
+        if ('name' in body && (!body.name || !body.name.trim())) return err(422, 'validation_error', 'Name cannot be empty.');
+        if (isLastActiveOwner && body.role === 'staff') return err(409, 'last_owner', 'There has to be at least one active owner.');
+        if (isLastActiveOwner && body.status === 'disabled') return err(409, 'last_owner', 'There has to be at least one active owner.');
+        if (body.name != null) u.name = body.name.trim();
+        if (body.role) u.role = body.role;
+        if (body.status) u.status = body.status;
+        return json(200, u);
+      }
+      return err(404, 'not_found', `Mock has no handler for ${method} ${path}`);
+    }
+
     if (path === '/admin/dashboard') return json(200, { orders: { newToday: 6, awaitingDispatch: 4, payOnDeliveryUnpaid: 3 }, attention: { lowStockVariants: 5, outOfStockPublished: 2, reviewsPending: 3, contactUnhandled: 2 }, revenueToday: KES(41200) });
     if (path === '/admin/products' && method === 'GET') return json(200, { items: PRODUCTS.map((p) => ({ id: p.id, name: p.name, slug: p.slug, category: p.category, status: 'published', price: p.price, totalStock: 7, variantCount: p.variants.length, primaryThumbUrl: '/assets/img/placeholder.svg', updatedAt: '2026-09-05T10:00:00Z' })), page: 1, pageSize: 20, total: PRODUCTS.length, totalPages: 1 });
     if (path.match(/^\/admin\/products\/[^/]+\/preview$/) && method === 'GET') {

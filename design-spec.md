@@ -121,6 +121,8 @@ block, image gallery.
 40. Homepage content editor
 41. Legal documents editor (publish new versions)
 42. Discount codes
+43. Team — admin user management (owner-only; hidden from staff, route bounces staff to the dashboard)
+44. Admin account & password (self-service change password; also the forced first-login / post-reset change-password step)
 
 ---
 
@@ -399,6 +401,11 @@ Target: "House of Esther contact / customer service".
 ### 30. Admin sign in
 - Email + password, no public "register". Separate rate limiting + lockout. Server
   enforces admin role on every `/api/admin/*` call regardless of this screen.
+- On a successful login the response carries `role` (`owner` | `staff`) and
+  `mustChangePassword`. If `mustChangePassword` is `true` the app goes straight to the
+  forced change-password screen (page 44) and nothing else is reachable until it is done.
+- A `disabled` account is refused with the same generic "those details don't match"
+  message as a wrong password — the UI never says an account is disabled.
 
 ### 31. Admin dashboard
 - **Today** — new orders count, unpaid pay-on-delivery orders, orders awaiting dispatch.
@@ -406,7 +413,15 @@ Target: "House of Esther contact / customer service".
   products, reviews pending moderation, contact messages unhandled (links to Contact
   messages, page 38A).
 - **Quick links** — add product, view orders, send a broadcast.
-- Dynamic: admin summary endpoint.
+- **Sidebar nav** — every admin (owner or staff) sees the shop-work items: products,
+  inventory, collections, orders, reviews, contact messages, subscribers, homepage
+  content, legal documents, discounts, and the owner's guide. The **Team** item (page 43)
+  renders **only for `role = 'owner'`** — a `staff` admin never sees it, and `/admin/team`
+  redirects a staff session here. An **Account** affordance (page 44) and **Sign out**
+  are available to everyone. Nav visibility is convenience only; every `/api/admin/*`
+  call re-checks the session's role and `status = 'active'` server-side.
+- Dynamic: admin summary endpoint; `GET /api/admin/auth/me` on boot for name / role /
+  `mustChangePassword`.
 
 ### 32. Products list (admin)
 - Table: image, name, category, price, total stock, status (Draft/Published/Archived),
@@ -523,6 +538,64 @@ with.
   usage limit (total + per customer), start/end date, active flag, eligible categories.
 - Dynamic: discount CRUD; validation happens server-side at cart/checkout.
 
+### 43. Team — admin user management (admin, owner-only)
+Target: let Esther (the owner) add, adjust, and retire the logins of people who help run
+the shop, without a developer or a re-seed. **Owner-only:** the Team item does not render
+in the sidebar for a `staff` admin, and the `/admin/team` route redirects a `staff`
+session to the dashboard. This is convenience — `GET`/`POST`/`PATCH /api/admin/users*`
+enforce `role = 'owner'` server-side regardless (`403 forbidden` otherwise).
+- **Team list** — admin table: name, email, role (Owner / Staff), status
+  (Active / Disabled), last sign-in ("Never" until the first login). Disabled rows are
+  visually muted but stay in the list. Newest first.
+- **Add administrator** form (section card above or beside the list): name, email, role
+  dropdown (Staff / Owner — default Staff), initial password field with a show/hide
+  toggle. Always-visible helper text: "You set a starting password and share it with them
+  privately — there is no email invite yet. They choose their own password the first time
+  they sign in." Submit → `POST /api/admin/users`. On success the new row appears (status
+  Active, "must change password" hint) and the form clears. Duplicate email → inline
+  error "An administrator with that email already exists" (code `email_taken`); if that
+  person is disabled, the copy points to reactivating the existing row. Weak / common
+  password → inline validation error, the same rules as the customer sign-up form.
+- **Per-row actions:**
+  - **Edit** — inline or small modal: change name and/or role. Saving role Owner→Staff on
+    the last active owner is refused by the server (`409 last_owner`); surface as "There
+    has to be at least one active owner." Applies to the owner's own row too.
+  - **Deactivate** / **Reactivate** — toggles `status` via `PATCH /api/admin/users/{id}`.
+    Deactivating shows a confirm ("They will be signed out and cannot sign in until you
+    reactivate them. Their name stays on past orders and stock changes."). Deactivating
+    the last active owner is refused (`409 last_owner`).
+  - **Reset password** — small form (new password + show/hide) →
+    `POST /api/admin/users/{id}/reset-password`. Copy: "Sets a temporary password and
+    signs them out. Share the new password privately; they set their own on next
+    sign-in." Not shown on the owner's own row (an owner changes their own password from
+    Admin account, page 44).
+- Inline note on the page: the initial / reset password must be shared privately (no
+  email invite exists yet), and the person is forced to change it on first sign-in.
+- Dynamic: admin users list (`GET /api/admin/users`), create (`POST /api/admin/users`),
+  edit name/role/status (`PATCH /api/admin/users/{id}`), reset password
+  (`POST /api/admin/users/{id}/reset-password`). See `api-contract.md` A16.
+
+### 44. Admin account & password
+Target: every admin (owner or staff) can change their own password; and a first-login /
+post-reset change is forced before anything else.
+- **Forced change-password screen** — when `mustChangePassword` is `true` (from
+  `POST /api/admin/auth/login` or `GET /api/admin/auth/me`), the admin app renders this
+  as a full-page step: no sidebar, no nav, no way to reach any other admin view. Fields:
+  current password (the temporary one they were given), new password with show/hide,
+  confirm new password. Brand-voiced intro: "Before you start — set a password only you
+  know." Submit → `POST /api/admin/auth/change-password`. Wrong current password → "That
+  current password doesn't match" (code `current_password_incorrect`). The new password
+  uses the same rules as the customer sign-up form. On success `mustChangePassword`
+  clears and they land on the dashboard.
+- **Normal "Account" area** — reachable from an account affordance in the admin header or
+  the sidebar footer (add one; the admin side has no profile page today — only the
+  storefront does). Shows the signed-in admin's name, email and role (read-only —
+  name / email / role changes go through the owner on the Team page), a **Change
+  password** form (current, new, confirm) calling the same
+  `POST /api/admin/auth/change-password`, and the **Sign out** control.
+- Dynamic: `GET /api/admin/auth/me` (name / email / role / `mustChangePassword`),
+  `POST /api/admin/auth/change-password`.
+
 ---
 
 ## 3. Coverage map — every "applies" category has a home
@@ -531,8 +604,8 @@ with.
 |---|---|
 | Catalog / inventory | Pages 2-6 (storefront), 32-35 (admin products, inventory, collections) |
 | Payments / checkout | Page 8 (checkout: M-Pesa STK + pay on delivery), 9 (confirmation), 37 (admin payment/refund) |
-| Accounts / auth | Pages 23-29 (customer), 30 (admin sign in); guest checkout on page 8 |
-| Admin / back-office | Pages 30-42 plus 38A (gated routes in the one build, server-enforced admin role) |
+| Accounts / auth | Pages 23-29 (customer), 30 (admin sign in), 44 (admin self-service / forced password change); guest checkout on page 8 |
+| Admin / back-office | Pages 30-44 plus 38A (gated routes in the one build, server-enforced admin role; page 43 Team is owner-only, page 44 is the admin account / password area) |
 | Search / discovery | Pages 2-5 (facets, sort, collections), search box in global header, type-ahead |
 | Notifications | Triggered from checkout (page 8), admin order transitions (page 37), broadcasts + back-in-stock (page 39); preferences on page 28; confirm/unsub landing page 21. Inbound Contact-form messages land in the read-only Contact messages inbox (page 38A) — the dashboard "contact messages unhandled" count links there and replies go out by email |
 | Legal / compliance | Pages 18-20 (versioned docs), 41 (admin editor), footer links, checkout modal links |
@@ -587,7 +660,12 @@ with.
 - **Image gallery** — carousel (mobile) / thumb-column + main + lightbox (desktop).
 - **Admin table** — sortable columns, filters, row actions, bulk actions, pagination
   (reused across products, orders, inventory, reviews, contact messages, subscribers,
-  discounts).
+  discounts, team).
+- **Admin sidebar nav** — shared across every admin page; role-gated (the Team item
+  renders only for `role = 'owner'`); carries the Account affordance and Sign out.
+- **Forced password-change screen** — full-page admin shell with no nav, shown whenever
+  `mustChangePassword` is `true`; blocks every other admin view until the change
+  succeeds. Reused for first-login and owner-initiated resets.
 - **Admin form shell** — section cards, sticky save bar, dirty-state guard.
 - **Rich text editor** — product story, Journal, legal docs.
 - **Image uploader** — drag-drop, reorder, alt text, primary flag, shows re-encoded
@@ -627,7 +705,7 @@ with.
 | D26 | Contact form submit (persists to `contact_messages`) | Contact | write |
 | D27 | Legal document by type (current + versions) | Legal pages, checkout modal | read (cacheable) |
 | D28 | Journal list + article by slug | Journal | read (cacheable) |
-| A1 | Admin auth | Admin sign in | write |
+| A1 | Admin auth (login / logout / me / change-password) | Admin sign in, forced + normal password change (page 44) | write + read |
 | A2 | Admin dashboard summary | Admin dashboard | read |
 | A3 | Admin products CRUD + draft-product preview | Products admin, Product edit | read + write |
 | A4 | Admin image upload / delete | Product edit | write |
@@ -642,6 +720,7 @@ with.
 | A13 | Admin legal list / publish version | Legal editor | read + write |
 | A14 | Admin discounts CRUD | Discounts admin | read + write |
 | A15 | Admin contact inbox — list, detail, mark handled (read-only; replies by email) | Contact messages admin (page 38A) | read + write |
+| A16 | Admin team (admin users): list, create, edit name/role/status, reset password (owner-only) | Team admin (page 43) | read + write |
 
 ---
 

@@ -186,7 +186,14 @@ export const api = {
     login: (email, password) => post('/admin/auth/login', { email, password }),
     logout: () => post('/admin/auth/logout'),
     me: (extra) => get('/admin/auth/me', undefined, extra),
+    changePassword: (body) => post('/admin/auth/change-password', body),
     dashboard: () => get('/admin/dashboard'),
+
+    /* ---- A16 team (admin users, owner-only) ---- */
+    getUsers: () => get('/admin/users'),
+    createUser: (body) => post('/admin/users', body),
+    updateUser: (id, body) => patch(`/admin/users/${encodeURIComponent(id)}`, body),
+    resetUserPassword: (id, body) => post(`/admin/users/${encodeURIComponent(id)}/reset-password`, body),
 
     getProducts: (query) => get('/admin/products', query),
     getProduct: (id) => get(`/admin/products/${encodeURIComponent(id)}`),

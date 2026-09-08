@@ -282,6 +282,87 @@ table.admin-table {
 .row-actions {
   display: flex;
   gap: var(--space-3xs);
+  flex-wrap: wrap;
+}
+
+.admin-main .hint {
+  color: var(--text-muted);
+  font-size: var(--step--1);
+}
+
+/* ---- sidebar account / sign-out footer ---- */
+.admin-sidebar__account {
+  margin-top: var(--space-m);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+}
+
+/* ---- forced first-login / post-reset password change (design-spec p44) ---- */
+.admin-forced {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-l) var(--space-s);
+  background: var(--color-bg);
+}
+.admin-forced__card {
+  width: 100%;
+  max-width: 26rem;
+  margin-top: var(--space-xl);
+  background: var(--color-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-l);
+}
+.admin-forced__card h1 {
+  font-size: var(--step-2);
+}
+
+/* ---- password field with a show/hide toggle ---- */
+.pw-input {
+  display: flex;
+  gap: var(--space-2xs);
+  align-items: stretch;
+}
+.pw-input .input {
+  flex: 1 1 auto;
+}
+.pw-toggle {
+  flex: none;
+}
+
+/* ---- team status badges + disabled rows ---- */
+.team-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid var(--hairline);
+}
+.team-badge--active {
+  background: rgba(46, 125, 50, 0.12);
+  color: #2e7d32;
+  border-color: rgba(46, 125, 50, 0.4);
+}
+.team-badge--disabled {
+  background: var(--color-bg-sink);
+  color: var(--text-muted);
+}
+.team-badge--pending {
+  background: rgba(176, 138, 70, 0.16);
+  color: #8a6a1f;
+  border-color: rgba(176, 138, 70, 0.4);
+}
+.team-row--disabled td {
+  color: var(--text-muted);
+}
+.team-row--disabled td:first-child {
+  opacity: 0.75;
 }
 
 /* ---- Shop owner's guide (static help page) ---- */

@@ -44,10 +44,14 @@
             (assoc :session s))))
 
 (defn admin
-  "Resolve the authenticated admin user, re-checking the role in the DB."
+  "Resolve the authenticated admin user, re-loading role + status from the DB on
+   every request (A1/A16). Returns the row even when status = 'disabled' so the
+   auth middleware can decide the response; callers must check :status."
   [conn id]
   (when-let [s (find-valid conn :admin id)]
     (some-> (db/q1 conn
-                   ["select id, name, email, role
-                     from admin_users where id = ? and role = 'admin'" (:userId s)])
+                   ["select id, name, email, role, status,
+                            must_change_password as \"mustChangePassword\",
+                            last_login_at as \"lastLoginAt\"
+                     from admin_users where id = ?" (:userId s)])
             (assoc :session s))))

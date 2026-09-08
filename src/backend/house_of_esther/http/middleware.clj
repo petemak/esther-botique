@@ -88,12 +88,28 @@
       (throw (err/unauthorized)))))
 
 (defn require-admin
-  "Reitit middleware: 401/403 unless an authenticated admin is present."
+  "Reitit middleware: 401 unless an authenticated admin whose account is still
+   `status = 'active'` is present. The account was re-loaded from the DB by
+   `wrap-context` on this request, so a mid-session deactivation or password
+   reset takes effect on the account's next call (A1/A16)."
   [handler]
   (fn [req]
-    (if (get-in req [:context :admin])
-      (handler req)
-      (throw (err/unauthorized "Admin sign-in required.")))))
+    (let [adm (get-in req [:context :admin])]
+      (if (and adm (= "active" (:status adm)))
+        (handler req)
+        (throw (err/unauthorized "Admin sign-in required."))))))
+
+(defn require-owner
+  "Reitit middleware: composes with `require-admin`; 403 `forbidden` unless the
+   signed-in admin has `role = 'owner'`. Wired onto `/api/admin/users*` only."
+  [handler]
+  (fn [req]
+    (let [adm (get-in req [:context :admin])]
+      (if (and adm (= "active" (:status adm)))
+        (if (= "owner" (:role adm))
+          (handler req)
+          (throw (err/forbidden "This area is limited to the shop owner.")))
+        (throw (err/unauthorized "Admin sign-in required."))))))
 
 (defn wrap-default-cache
   "Anything that didn't declare a Cache-Control gets no-store."

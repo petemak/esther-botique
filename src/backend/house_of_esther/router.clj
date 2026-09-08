@@ -36,7 +36,8 @@
             [house-of-esther.admin.orders :as admin-orders]
             [house-of-esther.admin.products :as admin-products]
             [house-of-esther.admin.site :as admin-site]
-            [house-of-esther.admin.taxonomy :as admin-taxonomy]))
+            [house-of-esther.admin.taxonomy :as admin-taxonomy]
+            [house-of-esther.admin.users :as admin-users]))
 
 (def ^:private public-routes
   (vec (concat catalog/routes search/routes reviews/routes cart/routes checkout/routes
@@ -52,7 +53,10 @@
                  [(into ["" {:middleware [mw/require-admin]}]
                         (concat admin-products/routes admin-images/routes admin-inventory/routes
                                 admin-taxonomy/routes admin-orders/routes admin-moderation/routes
-                                admin-marketing/routes admin-site/routes admin-contacts/routes))]))])
+                                admin-marketing/routes admin-site/routes admin-contacts/routes))]
+                 ;; A16 — owner-only admin team management
+                 [(into ["" {:middleware [mw/require-admin mw/require-owner]}]
+                        admin-users/routes)]))])
 
 (def routes
   (into ["/api"] (concat public-routes account-routes admin-routes)))

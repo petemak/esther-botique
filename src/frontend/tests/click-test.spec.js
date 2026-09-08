@@ -720,4 +720,172 @@ test.describe('admin', () => {
     }
     expect(errors).toEqual([]);
   });
+
+  test('TEAM (A16): owner sees the Team nav item and can open the page', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'owner' });
+    const errors = trackErrors(page);
+    await page.goto('/admin/');
+
+    const teamLink = page.locator('.admin-sidebar').getByRole('link', { name: 'Team' });
+    await expect(teamLink).toBeVisible();
+    await teamLink.click();
+    await expect(page).toHaveURL(/admin\/team\.html/);
+    await expect(page.locator('.admin-main h1')).toHaveText('Team');
+
+    // seeded list shows just the owner's own row
+    await expect(page.locator('.admin-table')).toContainText('esther@houseofesther.co.ke');
+    await expect(page.locator('tr', { hasText: 'esther@houseofesther.co.ke' }).locator('.team-badge')).toHaveText('Active');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('TEAM (A16): staff never see Team and are bounced off /admin/team.html', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'staff' });
+    await page.goto('/admin/');
+
+    await expect(page.locator('.admin-sidebar')).toBeVisible();
+    await expect(page.locator('.admin-sidebar').getByRole('link', { name: 'Team' })).toHaveCount(0);
+
+    await page.goto('/admin/team.html');
+    await expect(page).toHaveURL(/\/admin\/$/);
+    await expect(page.locator('.admin-main h1')).toHaveText('Dashboard');
+  });
+
+  test('TEAM (A16): add administrator posts, shows the share-the-password reminder, and the row appears', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'owner' });
+    const errors = trackErrors(page);
+    await page.goto('/admin/team.html');
+
+    await page.fill('#t-name', 'Miriam Otieno');
+    await page.fill('#t-email', 'miriam@houseofesther.co.ke');
+    await page.selectOption('#t-role', 'staff');
+    await page.fill('#t-password', 'Temp-Handover-2026');
+    await page.getByRole('button', { name: 'Add administrator' }).click();
+
+    await expect(page.locator('#t-result')).toContainText('Miriam Otieno added');
+    await expect(page.locator('#t-result')).toContainText(/privately/i);
+    await expect(page.locator('#t-result')).toContainText(/set their own password the first time/i);
+
+    const row = page.locator('tr', { hasText: 'miriam@houseofesther.co.ke' });
+    await expect(row).toContainText('Staff');
+    await expect(row.locator('.team-badge--active')).toBeVisible();
+    await expect(row.locator('td').nth(4)).toHaveText('—'); // never signed in
+
+    expect(errors).toEqual([]);
+  });
+
+  test('TEAM (A16): email_taken is surfaced inline', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'owner' });
+    await page.goto('/admin/team.html');
+
+    await page.fill('#t-name', 'Someone Else');
+    await page.fill('#t-email', 'esther@houseofesther.co.ke');
+    await page.selectOption('#t-role', 'staff');
+    await page.fill('#t-password', 'Temp-Handover-2026');
+    await page.getByRole('button', { name: 'Add administrator' }).click();
+
+    await expect(page.getByText(/already uses that email — reactivate them instead/i)).toBeVisible();
+  });
+
+  test('TEAM (A16): deactivate toggles the status badge', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'owner' });
+    page.on('dialog', (d) => d.accept());
+    await page.goto('/admin/team.html');
+
+    // add a second admin we are allowed to deactivate
+    await page.fill('#t-name', 'Miriam Otieno');
+    await page.fill('#t-email', 'miriam@houseofesther.co.ke');
+    await page.selectOption('#t-role', 'staff');
+    await page.fill('#t-password', 'Temp-Handover-2026');
+    await page.getByRole('button', { name: 'Add administrator' }).click();
+
+    const rowStatus = () => page.locator('tr', { hasText: 'miriam@houseofesther.co.ke' }).locator('td').nth(3);
+    await expect(rowStatus()).toContainText('Active');
+
+    await page.locator('tr', { hasText: 'miriam@houseofesther.co.ke' }).getByRole('button', { name: 'Deactivate' }).click();
+    await expect(rowStatus()).toContainText('Disabled');
+    await expect(page.locator('tr', { hasText: 'miriam@houseofesther.co.ke' })).toHaveClass(/team-row--disabled/);
+
+    // and back
+    await page.locator('tr', { hasText: 'miriam@houseofesther.co.ke' }).getByRole('button', { name: 'Reactivate' }).click();
+    await expect(rowStatus()).toContainText('Active');
+  });
+
+  test('TEAM (A16): demoting the only owner shows the last_owner message', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'owner' });
+    await page.goto('/admin/team.html');
+
+    const row = page.locator('tr', { hasText: 'esther@houseofesther.co.ke' });
+    await row.getByRole('button', { name: 'Edit' }).click();
+    await page.selectOption('#e-role', 'staff');
+    await page.getByRole('button', { name: 'Save' }).click();
+
+    await expect(page.locator('#team-edit-slot')).toContainText(/only owner/i);
+    // the row is unchanged
+    await expect(page.locator('tr', { hasText: 'esther@houseofesther.co.ke' })).toContainText('Owner');
+  });
+
+  test('FORCED PASSWORD (A1/p44): mustChangePassword blocks every admin view until it succeeds', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminMustChangePassword: true });
+    const errors = trackErrors(page);
+
+    await page.goto('/admin/');
+    await expect(page.locator('.admin-sidebar')).toHaveCount(0);
+    await expect(page.locator('#main h1')).toHaveText('Set a password only you know');
+
+    // cannot navigate away
+    await page.goto('/admin/products.html');
+    await expect(page.locator('.admin-sidebar')).toHaveCount(0);
+    await expect(page.locator('#main h1')).toHaveText('Set a password only you know');
+    await expect(page.locator('.admin-table')).toHaveCount(0);
+
+    // wrong current password
+    await page.goto('/admin/');
+    await page.getByLabel('Temporary password').fill('not-the-temp-one');
+    await page.getByLabel('New password', { exact: true }).fill('a-secret-only-she-knows');
+    await page.getByLabel('Confirm new password').fill('a-secret-only-she-knows');
+    await page.getByRole('button', { name: 'Set my password' }).click();
+    await expect(page.getByText("That current password doesn't match.")).toBeVisible();
+
+    // confirm-mismatch is caught client-side
+    await page.getByLabel('Temporary password').fill('Temp-Handover-2026');
+    await page.getByLabel('Confirm new password').fill('different');
+    await page.getByRole('button', { name: 'Set my password' }).click();
+    await expect(page.getByText('This does not match the new password.')).toBeVisible();
+
+    // valid change clears the gate and lands on the dashboard
+    await page.getByLabel('Confirm new password').fill('a-secret-only-she-knows');
+    await page.getByRole('button', { name: 'Set my password' }).click();
+    await expect(page).toHaveURL(/\/admin\/$/);
+    await expect(page.locator('.admin-main h1')).toHaveText('Dashboard');
+    await expect(page.locator('.admin-sidebar')).toBeVisible();
+
+    expect(errors).toEqual([]);
+  });
+
+  test('ACCOUNT (p44): admin account page shows read-only identity + a working change-password form', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'owner' });
+    await page.goto('/admin/');
+
+    await page.locator('.admin-sidebar').getByRole('link', { name: 'Account' }).click();
+    await expect(page).toHaveURL(/admin\/account\.html/);
+    await expect(page.locator('.readonly-panel')).toContainText('esther@houseofesther.co.ke');
+    await expect(page.locator('.readonly-panel')).toContainText('Owner');
+
+    await page.getByLabel('Current password').fill('correct horse battery staple');
+    await page.getByLabel('New password', { exact: true }).fill('another-fresh-secret');
+    await page.getByLabel('Confirm new password').fill('another-fresh-secret');
+    await page.getByRole('button', { name: 'Change password' }).click();
+    await expect(page.locator('.toast-region')).toContainText(/Password changed/i);
+  });
+
+  test('GUIDE: getting-started explains the Team capability', async ({ page }) => {
+    await installMockApi(page, { admin: true, adminRole: 'owner' });
+    await page.goto('/admin/guide.html');
+    const gs = page.locator('#getting-started');
+    await expect(gs).toContainText('Team');
+    await expect(gs).toContainText(/staff/i);
+    await expect(gs).toContainText(/set their own password/i);
+    await expect(gs).toContainText(/no email invite is sent/i);
+  });
 });

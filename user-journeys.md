@@ -4,11 +4,12 @@ _The sequences real people follow across pages. `design-spec.md` describes pages
 isolation; this file checks that getting from one step to the next is obvious. Endpoints
 in parentheses map to `api-contract.md`._
 
-Four journeys, in priority order:
+Five journeys, in priority order:
 1. First-time customer: Instagram → product → M-Pesa checkout → confirmation
 2. Returning customer: new-stock email → pay-on-delivery → track in account
 3. Owner (Esther): add a product with photos and stock, verify it's live
 4. Owner (Esther): fulfil an order (mark dispatched) and handle a return/refund
+5. Owner (Esther): add a staff member; the staff member is forced to set their own password
 
 ---
 
@@ -223,6 +224,61 @@ Lives in Nakuru.
 
 ---
 
+## Journey 5 — Esther adds a staff member; the staff member sets their own password
+
+**Persona:** Esther (owner) has taken on Miriam to help with orders and stock. Miriam
+needs her own login — not Esther's — but must not be able to touch team management or
+anything that could lock Esther out.
+
+1. Esther signs in at `/admin/signin.html` (`POST /api/admin/auth/login`). The response
+   carries `user.role: "owner"` and `mustChangePassword: false`, so she lands on the
+   **dashboard**.
+2. In the sidebar she sees a **Team** item (visible because she is an `owner`). She
+   clicks it → **Team page** (`GET /api/admin/users`), which lists just her own row
+   (Owner / Active / last sign-in today).
+3. She fills the **Add administrator** form: name "Miriam Otieno", email
+   "miriam@houseofesther.co.ke", role **Staff**, and types a starting password into the
+   field (using the show/hide toggle to check it). Helper text reminds her she must
+   share it privately and that Miriam will set her own password on first sign-in. She
+   submits → `POST /api/admin/users { name, email, role: "staff", initialPassword }`.
+4. The server validates the password against the same rules as customer sign-up, creates
+   the account `status: "active"`, `mustChangePassword: true`, and returns the new
+   `AdminUser`. Miriam's row appears in the table (Staff / Active / "Never" signed in).
+5. Esther sends Miriam the temporary password over WhatsApp — outside the app; there is
+   no email invite.
+6. Miriam opens `/admin/signin.html` on her laptop and signs in with her email + the
+   temporary password (`POST /api/admin/auth/login`). The response is `200` with
+   `user.role: "staff"` and **`mustChangePassword: true`**.
+7. The admin app immediately shows the **forced change-password screen** — full page, no
+   sidebar, no way around it. Miriam types the temporary password as "current password",
+   then a new password twice. Submit → `POST /api/admin/auth/change-password
+   { currentPassword, newPassword }`.
+8. The server verifies the current password, applies the sign-up password rules to the
+   new one, updates the hash, and clears `mustChangePassword`. The response has
+   `mustChangePassword: false`.
+9. Miriam lands on the **admin dashboard**. Her sidebar has products, inventory,
+   collections, orders, reviews, contact messages, subscribers, homepage content, legal
+   documents, discounts, the guide, plus Account and Sign out — **but no Team item**. If
+   she types `/admin/team` directly, the route redirects her to the dashboard, and any
+   direct call to `GET`/`POST`/`PATCH /api/admin/users*` returns `403 forbidden`.
+10. Miriam opens **Orders** and starts working. From now on her actions are attributed to
+    her (e.g. `createdBy` on a stock adjustment, `handledBy` on a contact message, the
+    `actor` in an order's activity log).
+11. **Ends at:** Miriam has her own working staff login, was forced to set a private
+    password, can do all shop work, and cannot see or touch team management.
+
+**Deactivation branch:** when Miriam leaves, Esther opens the Team page and clicks
+**Deactivate** on Miriam's row (`PATCH /api/admin/users/{id} { status: "disabled" }`).
+Miriam's live session stops working on her next request and she can no longer sign in
+(same generic "those details don't match" message — the disabled state is not
+disclosed), but her name stays on every order she dispatched and every stock change she
+made. If Miriam ever returns, **Reactivate** on the same row restores access. Esther
+cannot deactivate or demote her **own** account while she is the last active owner — the
+server returns `409 last_owner` and the UI explains there must always be one active
+owner.
+
+---
+
 ## Cross-journey gaps this file is here to catch
 
 - **The agreement checkbox must gate the submit button.** If "Place order" is tappable
@@ -246,3 +302,11 @@ Lives in Nakuru.
   product form states the ~2-minute public lag so the delay is expected, not alarming.
 - **New-stock email links must deep-link to the live PDP**, not a generic "New In" page —
   Journey 2 depends on the tapped product still being purchasable when she arrives.
+- **Role gating is server-truth, not a hidden nav item.** Journey 5 depends on a `staff`
+  admin being unable to reach team management even by typing `/admin/team` or calling the
+  API directly — `/api/admin/users*` must return `403` for `staff`, and `require-admin`
+  must re-check `status = 'active'` on every request so a deactivated admin's live
+  session dies on its next call. Hiding the Team link is cosmetic; the `403` and the
+  per-request status check are the actual controls. Equally, the `mustChangePassword`
+  gate must block every other admin view — if a new admin can navigate away from the
+  forced screen, the "choose your own password on first sign-in" guarantee is fiction.

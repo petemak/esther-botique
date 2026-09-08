@@ -42,8 +42,16 @@ const SECTIONS = [
     id: 'getting-started',
     title: 'Getting started',
     body: () => [
-      p(['Sign in on the ', lnk('/admin/signin.html', 'admin sign-in page'), ' with your email and password. Forgotten it? Ask your developer to reset it — there is no self-service reset for admin yet.']),
-      p('Adding other staff logins is not in this version yet. If you need another admin account, ask your developer.'),
+      p(['Sign in on the ', lnk('/admin/signin.html', 'admin sign-in page'), ' with your email and password. To change your own password later, use ', lnk('/admin/account.html', 'Account'), ' at the bottom of the left menu.']),
+      h3('Adding other people'),
+      p(['You can give other people their own logins from the ', lnk('/admin/team.html', 'Team'), ' page (you see it in the left menu because you are the owner).']),
+      bullets([
+        'Choose a role. An Owner can do everything you can, including managing the team. Staff can do all the shop work — products, orders, stock, reviews, messages, broadcasts — but do not see the Team page.',
+        'You type a starting password and share it with that person privately — a call or a message, not email. No email invite is sent.',
+        'The first time they sign in, they are asked to set their own password before they can do anything else.',
+        'When someone leaves, open Team and click Deactivate on their row. They can no longer sign in, but their name stays on everything they did. Reactivate brings them back.',
+      ]),
+      p('There must always be at least one active Owner, so the system will stop you removing or demoting the last one.'),
       p('The left menu is how you move around.'),
       p('Start each day on the Dashboard. It is your morning check:'),
       bullets(['new orders', 'orders to pack', 'unpaid pay-on-delivery orders', 'low stock', 'reviews waiting', 'unread messages']),

@@ -1,7 +1,7 @@
 # API Contract — House of Esther
 
 _The build-time agreement between frontend and backend. Every dynamic block in
-`design-spec.md` (D1-D28, A1-A15) maps to endpoints here. Constrained by
+`design-spec.md` (D1-D28, A1-A16) maps to endpoints here. Constrained by
 `engineering-standards.md`._
 
 ---
@@ -810,13 +810,69 @@ Response `200`:
 
 ## A1 — Admin auth
 
+Admin accounts carry a `role` of `owner` or `staff` (full role model in A16). An `owner`
+can do everything a `staff` admin can **plus** manage the admin team; a `staff` admin
+cannot see or call any team route (`/api/admin/users*`). The `require-admin` middleware
+re-checks `status = 'active'` on **every** `/api/admin/*` request — a mid-session
+deactivation or password reset takes effect on the account's next request — and the team
+routes in A16 additionally require `role = 'owner'`.
+
 ### `POST /api/admin/auth/login`
 Request: `{ "email": "...", "password": "..." }`. Response `200`: `he_admin_session`
-cookie + `{ "user": { "id", "name", "role": "admin" } }`. Separate, stricter rate limit
-and lockout. No admin self-registration endpoint exists.
+cookie +
+```json
+{
+  "user": { "id": "usr_admin1", "name": "Esther", "email": "esther@houseofesther.co.ke", "role": "owner" },
+  "mustChangePassword": false
+}
+```
+`role` ∈ `owner` | `staff` (the previous constant value `"admin"` is retired — no admin
+account has role `"admin"` after the A16 migration).
+`mustChangePassword` is `true` for an account the owner just created, or one whose
+password the owner reset (A16). While it is `true` the admin UI must route to the forced
+change-password screen (design-spec page 44) and block every other admin view until
+`POST /api/admin/auth/change-password` succeeds.
+Accounts with `status = 'disabled'` are rejected with the **same** generic
+`401 unauthorized` ("Those details don't match") as a wrong password — the disabled state
+is never disclosed. Separate, stricter rate limit and lockout. No admin self-registration
+endpoint exists. On success the backend stamps `last_login_at` (see A16).
 
 ### `POST /api/admin/auth/logout` → `204`
-### `GET /api/admin/auth/me` → `200 { "user": { ... } }` | `401`
+
+### `GET /api/admin/auth/me`
+Response `200`:
+```json
+{
+  "user": { "id": "usr_admin1", "name": "Esther", "email": "esther@houseofesther.co.ke", "role": "owner" },
+  "mustChangePassword": false
+}
+```
+`401` if not signed in, or the session's account is no longer `status = 'active'`. `user`
+now carries `role` (`owner` | `staff`) and the response carries `mustChangePassword`
+(boolean) — the admin shell reads both on boot to decide the nav (owner sees the Team
+item) and whether to force the change-password screen.
+
+### `POST /api/admin/auth/change-password`
+Any signed-in admin (`owner` or `staff`). `Cache-Control: no-store`. Request:
+```json
+{ "currentPassword": "Temp-Handover-2026", "newPassword": "a-secret-only-she-knows" }
+```
+- `currentPassword` — verified against the signed-in account; wrong →
+  `422 validation_error`, code `current_password_incorrect`.
+- `newPassword` — validated at the boundary with the **same rules as
+  `POST /api/auth/register`** (min 8 chars, not in `common-passwords.txt`) →
+  `422 validation_error` on failure.
+
+On success: updates the password hash, clears `mustChangePassword`, and keeps the current
+session valid. This is the endpoint both the forced first-login / post-reset screen and
+the normal "change my password" form in the admin account area (design-spec page 44)
+call. Rate-limited per admin identity. Response `200`:
+```json
+{
+  "user": { "id": "usr_admin1", "name": "Esther", "email": "esther@houseofesther.co.ke", "role": "owner" },
+  "mustChangePassword": false
+}
+```
 
 ## A2 — Dashboard
 
@@ -1206,14 +1262,136 @@ Errors: `404 not_found`, `422 validation_error` (body is not `{ "handled": boole
 
 ---
 
+## A16 — Team (admin users, owner-only)
+
+Lets the **owner** manage other administrator accounts without a developer or a re-seed.
+Every endpoint here requires an admin session whose account is `status = 'active'` **and**
+`role = 'owner'`. A `staff` session gets `403 forbidden` (code `forbidden`) from all of
+them; the frontend additionally hides the Team nav item and redirects `/admin/team` to
+the dashboard for staff, but that is convenience only — the server is the authority. All
+responses `Cache-Control: no-store`; standard error shape throughout.
+
+**Roles.** `owner` = all shop work (products, orders, stock, reviews, collections,
+broadcasts, homepage content, legal, contact) **plus** team management. `staff` = all
+shop work, **no** team management. The seeded `usr_admin1` is role `owner`.
+
+**Removal is deactivation, not deletion.** Setting a user `status = 'disabled'` stops
+their sign-in and kills their live session on its next request, but the row is never
+deleted and their name/id stays attached to historical actions — `createdBy` on
+`inventory/adjustments`, `handledBy` on `contact_messages`, the `actor` in an order's
+`activityLog`, agreement-acceptance resolution. Reactivating sets `status` back to
+`active`. There is no hard-delete endpoint.
+
+### `AdminUser` shape
+```json
+{
+  "id": "usr_admin1",
+  "name": "Esther Wanjiru",
+  "email": "esther@houseofesther.co.ke",
+  "role": "owner",
+  "status": "active",
+  "mustChangePassword": false,
+  "createdAt": "2026-09-06T09:00:00Z",
+  "lastLoginAt": "2026-09-08T07:14:00Z"
+}
+```
+`role` ∈ `owner` | `staff`. `status` ∈ `active` | `disabled`. `lastLoginAt` is `null`
+until the account's first successful login. A password hash is never returned.
+
+### `GET /api/admin/users`
+Lists every admin account (active and disabled), newest first. Not paginated — the team
+is small — but still wrapped for consistency.
+Response `200`:
+```json
+{ "items": [ /* AdminUser */ ] }
+```
+Errors: `401 unauthorized`, `403 forbidden` (caller is `staff`).
+
+### `POST /api/admin/users`
+Creates a new admin. Request:
+```json
+{
+  "name": "Miriam Otieno",
+  "email": "miriam@houseofesther.co.ke",
+  "role": "staff",
+  "initialPassword": "Temp-Handover-2026"
+}
+```
+- `name` — required, 1–120 chars.
+- `email` — required, valid email, stored lower-cased, unique among admin accounts
+  (including `disabled` ones).
+- `role` — required, `owner` | `staff`.
+- `initialPassword` — required; validated at the boundary with the **same rules as
+  `POST /api/auth/register`** (min 8 chars, not in `common-passwords.txt`).
+
+The account is created `status = 'active'` with `mustChangePassword = true`. The owner
+shares `initialPassword` with the new admin privately — there is **no** email invite (the
+notification delivery worker does not exist yet). The new admin is forced to set their
+own password on first sign-in via `POST /api/admin/auth/change-password`.
+
+Response `201`: the `AdminUser` (`mustChangePassword: true`, `lastLoginAt: null`).
+Errors: `409 conflict` code `email_taken` (an admin — active or disabled — already has
+that email; reactivate that row instead), `422 validation_error` (missing field, bad
+`role`, weak/common `initialPassword`), `401 unauthorized`, `403 forbidden` (caller is
+`staff`).
+
+### `PATCH /api/admin/users/{id}`
+Edits an existing admin. Body may contain any subset of:
+```json
+{ "name": "Miriam A. Otieno", "role": "owner", "status": "disabled" }
+```
+- `name` — 1–120 chars.
+- `role` — `owner` | `staff`.
+- `status` — `active` | `disabled`. Setting `disabled` immediately invalidates that
+  admin's sessions (enforced by `require-admin` on their next request).
+
+**Server-side guardrails** (the UI must not be the only thing enforcing these — return
+the codes shown):
+- Cannot demote the **last active owner** to `staff` → `409 conflict` code `last_owner`.
+- Cannot set the **last active owner** to `status = 'disabled'` → `409 conflict` code
+  `last_owner`.
+- Both apply even when the acting owner is editing **their own** account — an owner
+  cannot demote or disable themselves while they are the last active owner.
+- `role` / `status` outside the allowed enums, or an empty `name` → `422
+  validation_error`.
+
+"Last active owner" = the only account with `role = 'owner'` AND `status = 'active'`.
+Demoting or disabling an owner is allowed whenever at least one **other** active owner
+remains.
+
+Response `200`: the updated `AdminUser`. Errors: `404 not_found` (no such id),
+`409 conflict` (`last_owner`), `422 validation_error`, `401 unauthorized`,
+`403 forbidden` (caller is `staff`).
+
+### `POST /api/admin/users/{id}/reset-password`
+The owner sets a new temporary password for an admin who is locked out or has forgotten
+theirs. Request:
+```json
+{ "newPassword": "New-Temp-2026" }
+```
+`newPassword` validated at the boundary with the **same rules as `POST /api/auth/register`**.
+On success: updates the target's password hash, sets `mustChangePassword = true` (they
+must change it on next sign-in), and invalidates the target's existing sessions. The
+owner shares the new password privately.
+Response `200`: the target `AdminUser` (`mustChangePassword: true`).
+Errors: `404 not_found`, `422 validation_error` (weak/common password), `401 unauthorized`,
+`403 forbidden` (caller is `staff`).
+
+There is deliberately **no** endpoint for an owner to reset **their own** password this
+way — an owner changes their own password through `POST /api/admin/auth/change-password`
+(A1), which requires the current password. A fully locked-out sole owner is a
+developer / DB-recovery task, not a self-service flow.
+
+---
+
 ## Endpoint ↔ capability coverage
 
 | Capability | Key endpoints |
 |---|---|
 | Catalog / inventory | `GET /products*`, `GET /categories`, `GET /collections/*`, `/api/admin/products*`, `GET /api/admin/products/{id}/preview` (draft / any-status PDP preview), `/api/admin/inventory*`, `/api/admin/collections*`, `POST /api/admin/images` |
 | Payments / checkout | `POST /checkout/quote`, `POST /orders`, `POST /payments/mpesa/stk-push`, `GET /payments/{id}`, `POST /payments/mpesa/callback`, `PATCH /api/admin/orders/{n}/payment`, `POST /api/admin/orders/{n}/refund` |
-| Accounts / auth | `/api/auth/*`, `/api/account/*`, `/api/admin/auth/*` |
-| Admin / back-office | all `/api/admin/*` — incl. `GET /api/admin/products/{id}/preview` (draft-product preview) and `GET`/`PATCH /api/admin/contacts` (read-only contact inbox) |
+| Accounts / auth | `/api/auth/*`, `/api/account/*`, `/api/admin/auth/*` (incl. `POST /api/admin/auth/change-password` — any admin), `/api/admin/users*` (A16 — owner-only admin team management) |
+| Admin / back-office | all `/api/admin/*` — incl. `GET /api/admin/products/{id}/preview` (draft-product preview), `GET`/`PATCH /api/admin/contacts` (read-only contact inbox), and `/api/admin/users*` + `POST /api/admin/auth/change-password` (A16 — owner-only team management: add / edit role / deactivate admins; forced first-login password change) |
 | Search / discovery | `GET /products` (facets/sort), `GET /search/suggestions` |
 | Notifications | order-confirmation on `POST /orders`, receipt on callback, transition emails on `PATCH /api/admin/orders/{n}/status`, `/api/subscriptions*`, `/api/admin/broadcasts*`, back-in-stock side effect on `POST /api/admin/inventory/adjustments`, `/api/account/notification-preferences`; inbound contact-form messages persist to `contact_messages` and are triaged via `GET`/`PATCH /api/admin/contacts` (customer replies sent by email outside the app) |
 | Legal / compliance | `GET /legal/{docType}`, `GET /legal/{docType}/versions/{n}`, `/api/admin/legal*` |

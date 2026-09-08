@@ -3,7 +3,9 @@ import { el, clear, $ } from '../../dom.js';
 import { CONFIG } from '../../config.js';
 import { ensureAbsoluteCanonical } from '../../util.js';
 import { logoMonogram } from '../../logo.js';
+import { passwordChangeForm } from './_password.js';
 
+/** [key, label, href, ownerOnly?] — order is the sidebar order. */
 const NAV = [
   ['dashboard', 'Dashboard', '/admin/'],
   ['products', 'Products', '/admin/products.html'],
@@ -16,6 +18,7 @@ const NAV = [
   ['content', 'Homepage content', '/admin/content.html'],
   ['legal', 'Legal documents', '/admin/legal.html'],
   ['discounts', 'Discount codes', '/admin/discounts.html'],
+  ['team', 'Team', '/admin/team.html', true],
   ['guide', 'Guide', '/admin/guide.html'],
 ];
 
@@ -24,16 +27,23 @@ export function adminView() {
 }
 
 /**
- * Guards the admin session (server re-checks role on every /api/admin/* call regardless),
- * renders the chrome, and returns { user, content, setTitle }.
+ * Guards the admin session (server re-checks role + status on every /api/admin/* call
+ * regardless), renders the chrome, and returns { user, role, content, setTitle }.
+ *
+ * Two hard gates run before any page content:
+ *  - not signed in / disabled  -> bounce to the sign-in screen
+ *  - mustChangePassword === true -> full-page forced change-password step, no nav,
+ *    no other admin view reachable until it succeeds (design-spec page 44).
  */
 export async function adminShell(activeKey, title) {
   ensureAbsoluteCanonical();
   const root = adminView();
   let user;
+  let mustChangePassword;
   try {
     const res = await api.admin.me();
     user = res && res.user;
+    mustChangePassword = !!(res && res.mustChangePassword);
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       const next = encodeURIComponent(window.location.pathname + window.location.search);
@@ -44,8 +54,16 @@ export async function adminShell(activeKey, title) {
     return null;
   }
 
+  if (mustChangePassword) {
+    renderForcedPasswordChange(root);
+    return null;
+  }
+
+  const role = (user && user.role) || 'staff';
   const content = el('div', { id: 'admin-content' });
   const heading = el('h1', { text: title || '' });
+
+  const navItems = NAV.filter(([, , , ownerOnly]) => !ownerOnly || role === 'owner');
 
   clear(root).append(
     el('div', { class: 'admin-shell' }, [
@@ -55,24 +73,33 @@ export async function adminShell(activeKey, title) {
           el('span', { class: 'brand__word', text: 'Esther Admin', 'aria-hidden': 'true' }),
         ]),
         el('nav', { 'aria-label': 'Admin' }, [
-          el('ul', {}, NAV.map(([key, label, href]) =>
+          el('ul', {}, navItems.map(([key, label, href]) =>
             el('li', {}, [el('a', { href, text: label, 'aria-current': key === activeKey ? 'page' : null })])
           )),
         ]),
         el('p', { style: 'margin-top:2rem;font-size:var(--step--1)' }, [
           el('a', { href: '/', target: '_blank', rel: 'noopener', style: 'color:var(--color-bg)', text: 'View storefront ↗' }),
         ]),
-        el('button', {
-          class: 'btn btn--small btn--secondary',
-          style: 'margin-top:1rem;border-color:var(--color-bg);color:var(--color-bg)',
-          text: 'Sign out',
-          on: {
-            click: async () => {
-              try { await api.admin.logout(); } catch { /* ignore */ }
-              window.location.href = '/admin/signin.html';
+        el('div', { class: 'admin-sidebar__account' }, [
+          el('a', {
+            class: 'btn btn--small btn--secondary',
+            style: 'border-color:var(--color-bg);color:var(--color-bg)',
+            href: '/admin/account.html',
+            'aria-current': activeKey === 'account' ? 'page' : null,
+            text: 'Account',
+          }),
+          el('button', {
+            class: 'btn btn--small btn--secondary',
+            style: 'border-color:var(--color-bg);color:var(--color-bg)',
+            text: 'Sign out',
+            on: {
+              click: async () => {
+                try { await api.admin.logout(); } catch { /* ignore */ }
+                window.location.href = '/admin/signin.html';
+              },
             },
-          },
-        }),
+          }),
+        ]),
       ]),
       el('main', { class: 'admin-main' }, [
         el('div', { class: 'admin-topbar' }, [heading, el('span', { class: 'hint', text: user ? user.name || user.email : '' })]),
@@ -83,12 +110,37 @@ export async function adminShell(activeKey, title) {
 
   return {
     user,
+    role,
     content,
     setTitle: (t) => {
       heading.textContent = t;
       document.title = `${t} — ${CONFIG.brand} Admin`;
     },
   };
+}
+
+/**
+ * Forced first-login / post-reset password change. Full page: no sidebar, no nav,
+ * nothing else reachable. On success we reload the current URL — `me()` then reports
+ * `mustChangePassword: false` and the page they were headed to renders normally
+ * (default: the dashboard, since sign-in sends them to /admin/).
+ */
+function renderForcedPasswordChange(root) {
+  document.title = `Set your password — ${CONFIG.brand} Admin`;
+  clear(root).append(
+    el('div', { class: 'admin-forced' }, [
+      el('div', { class: 'admin-forced__card stack' }, [
+        el('p', { class: 'eyebrow', text: `${CONFIG.brand} Admin` }),
+        el('h1', { text: 'Set a password only you know' }),
+        el('p', { text: 'Before you start — the password you were given is temporary. Choose your own now. Nothing else in the admin opens until this is done.' }),
+        passwordChangeForm({
+          currentLabel: 'Temporary password',
+          submitLabel: 'Set my password',
+          onSuccess: () => window.location.reload(),
+        }),
+      ]),
+    ])
+  );
 }
 
 /* ---- shared admin helpers ---- */

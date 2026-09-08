@@ -94,7 +94,8 @@
                              :body {:email (:admin-email (:seed (config/load-config)))
                                     :password (:admin-password (:seed (config/load-config)))}})]
             (is (= 200 (:status login)))
-            (is (= "admin" (get-in login [:body :user :role])))))))))
+            (is (= "owner" (get-in login [:body :user :role])))
+            (is (false? (get-in login [:body :mustChangePassword])))))))))
 
 (deftest admin-create-product-with-options
   (when db-url
