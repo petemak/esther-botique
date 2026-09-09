@@ -34,6 +34,7 @@
             [house-of-esther.admin.marketing :as admin-marketing]
             [house-of-esther.admin.moderation :as admin-moderation]
             [house-of-esther.admin.orders :as admin-orders]
+            [house-of-esther.admin.product-import :as admin-product-import]
             [house-of-esther.admin.products :as admin-products]
             [house-of-esther.admin.site :as admin-site]
             [house-of-esther.admin.taxonomy :as admin-taxonomy]
@@ -51,7 +52,11 @@
   [(into ["/admin"]
          (concat admin-auth/routes
                  [(into ["" {:middleware [mw/require-admin]}]
-                        (concat admin-products/routes admin-images/routes admin-inventory/routes
+                        ;; A17 import/export static paths must sit before
+                        ;; admin-products/routes so /products/import|export win
+                        ;; over /products/:id (router uses :conflicts nil).
+                        (concat admin-product-import/routes
+                                admin-products/routes admin-images/routes admin-inventory/routes
                                 admin-taxonomy/routes admin-orders/routes admin-moderation/routes
                                 admin-marketing/routes admin-site/routes admin-contacts/routes))]
                  ;; A16 — owner-only admin team management
@@ -68,7 +73,11 @@
   (ring/ring-handler
    (ring/router
     routes
-    {:data {:muuntaja m/instance
+    {;; A17: /admin/products/import|export|import/template are static siblings of
+     ;; /admin/products/:id. reitit flags that as a conflict; static paths still
+     ;; win at match time as long as they're listed first (see router.clj).
+     :conflicts nil
+     :data {:muuntaja m/instance
             :middleware [muuntaja/format-middleware
                          mw/wrap-exception
                          [mw/wrap-context config]

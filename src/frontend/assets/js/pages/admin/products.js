@@ -47,8 +47,21 @@ function renderFilters() {
       ]),
       el('a', { class: 'btn', href: '/admin/product-edit.html', text: 'Add product' }),
     ]),
+    catalogueTools(),
     el('div', { id: 'p-results' }, [el('div', { class: 'spinner' })])
   );
+}
+
+function catalogueTools() {
+  return el('div', { class: 'catalogue-tools' }, [
+    el('h2', { class: 'catalogue-tools__title', text: 'Catalogue tools' }),
+    el('div', { class: 'catalogue-tools__actions' }, [
+      el('a', { class: 'btn btn--small btn--secondary', href: '/admin/product-import.html', text: 'Bulk import' }),
+      el('a', { class: 'btn btn--small btn--ghost', href: api.admin.productsExportUrl(), download: '', text: 'Download current products (CSV)' }),
+      el('a', { class: 'btn btn--small btn--ghost', href: api.admin.importTemplateUrl(), download: '', text: 'Download template' }),
+    ]),
+    el('p', { class: 'hint', text: 'Export the catalogue or the template, edit it in a spreadsheet, then upload it to add or bulk-update products.' }),
+  ]);
 }
 
 async function load() {

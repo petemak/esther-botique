@@ -71,6 +71,18 @@ const SECTIONS = [
         'Click "Preview" to see exactly how the product page will look, phone size included.',
         'When it looks right, click "Publish". It appears on the shop within about 2 minutes. Your admin screens update straight away.',
       ]),
+      h3('Adding lots of products at once'),
+      p('If you are setting many prices or stock counts in one go, or adding a batch of new pieces, you can work from a spreadsheet instead of opening each product.'),
+      steps([
+        ['On the Products page, in "Catalogue tools", click ', el('strong', { text: 'Download current products (CSV)' }), ' to get your live list, or ', el('strong', { text: 'Download template' }), ' to start fresh.'],
+        'Open it in Excel or Google Sheets. Fill in name, price, description, quantity and category. Keep price and quantity as whole numbers.',
+        ['Save it as a CSV, then click ', el('strong', { text: 'Bulk import' }), ' and choose your file.'],
+        'Check the summary. It shows you every row: what will be created, what will be updated, and anything it cannot use. Nothing is saved yet.',
+        ['When it looks right, click ', el('strong', { text: 'Apply changes' }), '.'],
+      ]),
+      p('A name that matches a product you already have updates it. A new name creates a draft — open it afterwards to add photos, then publish it.'),
+      p('Products that have sizes or colours only get their price and description updated this way. Set their stock on the Inventory page, one option at a time, so the movement is recorded.'),
+      p('Stock changes made by an import show up on the Inventory page as adjustments with your name on them, the same as any other stock change.'),
     ],
   },
   {

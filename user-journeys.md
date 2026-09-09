@@ -4,12 +4,13 @@ _The sequences real people follow across pages. `design-spec.md` describes pages
 isolation; this file checks that getting from one step to the next is obvious. Endpoints
 in parentheses map to `api-contract.md`._
 
-Five journeys, in priority order:
+Six journeys, in priority order:
 1. First-time customer: Instagram → product → M-Pesa checkout → confirmation
 2. Returning customer: new-stock email → pay-on-delivery → track in account
 3. Owner (Esther): add a product with photos and stock, verify it's live
 4. Owner (Esther): fulfil an order (mark dispatched) and handle a return/refund
 5. Owner (Esther): add a staff member; the staff member is forced to set their own password
+6. Owner (Esther): bulk-update the catalogue from a spreadsheet (CSV export → edit → import → review → confirm)
 
 ---
 
@@ -279,6 +280,85 @@ owner.
 
 ---
 
+## Journey 6 — Esther bulk-updates the catalogue from a spreadsheet
+
+**Persona:** Esther, at her laptop, doing a seasonal price review. She has ~40 products
+and wants to nudge prices and correct stock counts in one pass rather than open 40 edit
+pages. She also has three new arrivals whose photos are not ready yet, but whose names,
+prices and stock she already knows.
+
+1. She signs in at `/admin/signin.html` and opens **Products** (page 32,
+   `GET /api/admin/products`).
+2. In the catalogue-tools row next to **Add product** she clicks **Download current
+   products (CSV)** (`GET /api/admin/products/export`). Her browser saves
+   `house-of-esther-products-2026-09-09.csv` — one row per non-archived product,
+   columns `name,price,description,quantity,category,status`. The multi-option
+   "Sample Multi Bag" (two colours) has a **blank quantity** cell, because per-option
+   stock is managed on the product page.
+3. She opens the file in Google Sheets. She raises `price` on six single-option pieces,
+   corrects `quantity` on a few where the shop count was wrong, bumps the multi-option
+   bag's `price`, and adds **three new rows** for the new arrivals — name, price,
+   quantity, `category = women`, description left blank. She saves as CSV.
+4. Back in admin she clicks **Bulk import**. The panel opens on **step 1 (Upload)** with
+   plain-language rules: name + price + quantity required; category required for new
+   items; a name that matches an existing product updates it, a new name creates a
+   **draft** (photos and publish happen on the product page); whole numbers only. She
+   picks her file and submits.
+5. The frontend sends `POST /api/admin/products/import` (`multipart/form-data`, one
+   `file`). The server parses the CSV, slugifies each name with the same rule as the
+   product form, matches against `products.slug`, builds a plan, and returns it with a
+   `token`. **Nothing has been written to the database.**
+6. **Step 2 (Review the plan)** renders. The **count strip** reads
+   **"3 new · 6 updated · 1 skipped · 0 problems"**. The per-row table shows:
+   - the six price updates with **price 5,400 → 5,900** style before/after, and where she
+     changed it a **stock 3 → 8** line (marked as an audited adjustment, not an
+     overwrite);
+   - the three new rows badged **New**, each with the note **"Created as a draft — add
+     photos and publish from the Products page"**;
+   - the multi-option bag badged **Update**, counted among the six, with the note
+     **"Displayed price and description updated — set stock and per-option prices on the
+     product page"** and deliberately **no** stock line (she briefly expected the blank
+     quantity to zero its stock; the note explains why it did not);
+   - one row badged **Skip** — a scarf she archived months ago —
+     **"This product is archived — restore it first, then re-import"**. Not an error,
+     just not applied.
+7. She clicks **Apply 9 changes** (3 creates + 6 updates; the skipped row does not
+   count). The frontend sends `POST /api/admin/products/import/commit` with the `token`
+   and a fresh `Idempotency-Key`.
+8. The server applies the plan row by row: it creates the three drafts (each `status =
+   'draft'`, one default variant with an auto SKU from the slug, `price_amount` and
+   `stock` from the row), updates the six base prices (and the matching single variant's
+   price), and for each row where she changed stock writes a **`bulk_import` inventory
+   adjustment** (`delta = new − current`) so the movement is on the audit trail. The
+   multi-option bag gets only its `base_price_amount` updated — no variant price or
+   variant stock is touched.
+9. **Result screen:** "3 created as drafts · 6 updated · 1 skipped". Each new draft links
+   to its edit page ("add photos, then publish"). She opens one — Media is empty, Status
+   is Draft — exactly as expected.
+10. She returns to the **Products list** (`GET /api/admin/products`) and sees the six
+    updated prices and the three new **Draft** rows. (The public catalogue is CDN-cached
+    for ~2 minutes; the admin list reads live.)
+11. She opens **Inventory → adjustments** (`GET /api/admin/inventory/adjustments`) and
+    sees the new `bulk_import` entries with her name against them.
+12. **Ends at:** Products list showing the new drafts and updated prices; stock changes
+    recorded as audited adjustments; adding photos and publishing the three drafts is the
+    only thing left to do.
+
+**Expired-preview branch:** if she leaves the review screen open over lunch and clicks
+**Apply** an hour later, the commit returns `410 import_token_expired`. The panel says
+"This preview has expired — upload the file again" and sends her back to step 1. Nothing
+was applied.
+
+**Already-applied branch:** if she double-clicks **Apply**, or reloads and clicks again,
+the second call replays the same `Idempotency-Key` (same result) or, if the token was
+already consumed, returns `409 import_token_used` — the panel shows "These changes were
+already applied" and links to the Products list. The three drafts are not created twice.
+
+**Re-run branch:** re-uploading the same, now-unmodified export produces an all
+"update, no change" plan; **Apply** is disabled because there is nothing to apply.
+
+---
+
 ## Cross-journey gaps this file is here to catch
 
 - **The agreement checkbox must gate the submit button.** If "Place order" is tappable
@@ -310,3 +390,12 @@ owner.
   per-request status check are the actual controls. Equally, the `mustChangePassword`
   gate must block every other admin view — if a new admin can navigate away from the
   forced screen, the "choose your own password on first sign-in" guarantee is fiction.
+- **The bulk-import preview must write nothing, and the commit must be idempotent.**
+  Journey 6 depends on `POST /api/admin/products/import` planning without touching the
+  database, and `POST /api/admin/products/import/commit` applying exactly that plan once.
+  A double-tap or a retry with the same `Idempotency-Key` must not create the three
+  drafts twice or double-apply the six price changes; a stale `token` must fail closed
+  (`410`), not apply a plan built against a catalogue that has since moved. Stock changes
+  go through `bulk_import` inventory adjustments, never a raw stock overwrite, so the
+  audit trail stays intact — and a multi-variant product's per-option stock and prices
+  are never touched by a CSV.

@@ -1,7 +1,7 @@
 # API Contract — House of Esther
 
 _The build-time agreement between frontend and backend. Every dynamic block in
-`design-spec.md` (D1-D28, A1-A16) maps to endpoints here. Constrained by
+`design-spec.md` (D1-D28, A1-A17) maps to endpoints here. Constrained by
 `engineering-standards.md`._
 
 ---
@@ -1167,6 +1167,7 @@ retained and remain fetchable at `/api/legal/{docType}/versions/{n}` so historic
 `agreementAcceptance` records stay resolvable. Response `201`:
 `{ "docType": "terms-of-sale", "version": 5, "effectiveDate": "2026-10-01" }`.
 CDN cache purged for the affected `/api/legal/*` paths.
+
 **Note:** publishing a new Terms of Sale or Returns Policy version means checkout
 immediately requires acceptance of the new version numbers; in-flight carts that
 pre-fetched the old numbers get `agreement_version_stale` on `POST /api/orders` and the
@@ -1381,6 +1382,343 @@ There is deliberately **no** endpoint for an owner to reset **their own** passwo
 way — an owner changes their own password through `POST /api/admin/auth/change-password`
 (A1), which requires the current password. A fully locked-out sole owner is a
 developer / DB-recovery task, not a self-service flow.
+
+---
+
+## A17 — Product bulk import / export (admin)
+
+Lets the owner populate and bulk-update the catalogue from a spreadsheet instead of
+editing products one at a time. **Staff-level shop work** — every endpoint here requires
+an active admin session (`require-admin`); it is **not** owner-only. Standard error shape
+throughout; all responses `Cache-Control: no-store`. `camelCase` keys; ISO 8601 UTC
+timestamps.
+
+The write path is deliberately two-step: **`POST /api/admin/products/import` parses,
+validates and plans but writes nothing**; **`POST /api/admin/products/import/commit`
+applies a previously-returned plan**. Nothing reaches the database until commit.
+
+### CSV format (accepted by import; emitted by export + template)
+
+- UTF-8, comma-separated, one header row, then up to **1000 data rows**. File `≤ 2 MB`.
+- Header names are **case-insensitive and order-independent**; leading/trailing spaces on
+  a header name are ignored. Recognised columns and their accepted synonyms:
+
+  | Canonical | Accepted header synonyms (case-insensitive) | Required |
+  |---|---|---|
+  | `name` | `name`, `product`, `title` | yes |
+  | `price` | `price`, `amount`, `price (kes)` | yes |
+  | `description` | `description`, `desc`, `short description` | no |
+  | `quantity` | `quantity`, `qty`, `stock` | yes |
+  | `category` | `category`, `cat` | required for NEW products, optional for updates |
+
+- A line whose first cell begins with `#` is a comment and is skipped (lets the template
+  ship guidance). Unknown extra columns are ignored (a `notes` column is fine).
+- `price` and `quantity` are **whole numbers** (Kenyan shillings / units). `"5,400"`,
+  `"5400"`, `" 5400 "` accept; `"5400.00"` accepts only if the fractional part is zero;
+  `"KES 5400"`, `"5400/-"`, negative, empty, or non-numeric → row error. `quantity` must
+  be `≥ 0`.
+- `name` is trimmed; a blank `name` → row error.
+
+### Matching rule (import)
+
+For each data row the server computes `slug = slugify(name)` using the **same algorithm
+as the product create form** (`src/frontend/.../productEdit.js`): lower-case, trim,
+replace every run of characters outside `[a-z0-9]` with `-`, strip leading/trailing `-`.
+No Unicode transliteration (accented letters collapse to `-`), matching current
+behaviour. It then looks up `products.slug`:
+
+- **exactly one match** → planned as `update`.
+- **no match** → planned as `create`.
+- **more than one product with that slug** → planned as `skip`, note `"More than one
+  product matches this name — edit it on the Products page"`.
+- match is an **`archived`** product → planned as `skip`, note `"This product is archived
+  — restore it first, then re-import"`.
+- two data rows in the same file slugify to the same value → the **first** is planned
+  normally; each later one is `action: "error"`, message `"Duplicate of row N — only the
+  first row for a product name is used"`.
+
+Renaming a product in the sheet yields a new slug, hence a new `create`; the old product
+is untouched. This is accepted — renames stay a product-edit-page task.
+
+### Plan semantics
+
+**create** (no existing product):
+- `status = 'draft'` (a CSV carries no photos).
+- `category` is **required** → missing/blank ⇒ `action: "error"`, message `"category is
+  required for a new product"`.
+- One product: `name`, `slug`, `category`, `short_description` from `description` (else
+  null), `base_price_amount` = row `price`, defaults for the rest.
+- One default variant: `options {}`, `sku` auto-generated from the slug (upper-cased,
+  non-alphanumeric → `-`, a numeric suffix appended on collision with an existing
+  `product_variants.sku`), `price_amount` = row `price`, `stock` = row `quantity`,
+  `low_stock_threshold` = 2, `enabled` = true.
+- No inventory adjustment is written for a brand-new variant's opening stock (consistent
+  with `POST /api/admin/products`).
+
+**update, product has exactly one variant:**
+- `products.base_price_amount` ← row `price`; that variant's `price_amount` ← row `price`.
+- `products.short_description` ← `description` **only if the column is present in the file
+  AND the cell is non-blank**. A blank cell leaves the current value unchanged (never
+  clears it).
+- If row `quantity` differs from the variant's current `stock`, apply the difference as
+  an **audited inventory adjustment**: `reason = 'bulk_import'`, `delta = quantity −
+  currentStock`, `note = "CSV bulk import"`, `created_by` = the acting admin. **Never a
+  raw stock overwrite.** Equal quantity ⇒ no adjustment.
+- If `category` is present, non-blank and different, `products.category` is updated (moves
+  the product).
+
+**update, product has more than one variant (multiple size/colour variants):**
+- `products.base_price_amount` ← row `price`; `products.short_description` ← `description`
+  (same present-and-non-blank rule); `category` may move the product.
+- **No variant price is touched. No variant stock is touched. No inventory adjustment is
+  written.**
+- Row note: `"Displayed price and description updated — set stock and per-option prices on
+  the product page"`.
+
+**skip:** ambiguous-name and archived-name rows (above) — reported, not applied, **not**
+errors.
+
+**error:** a row the server cannot act on — bad `price`/`quantity`, blank `name`, missing
+`category` on a create, in-file duplicate name. Reported with `message`; not applied.
+Per-row errors never fail the whole upload.
+
+### `POST /api/admin/products/import`
+
+`multipart/form-data`, exactly one part **`file`** (the CSV, `≤ 2 MB`, `≤ 1000` data
+rows). Parses + validates + plans the file against the current catalogue. **Writes
+nothing.**
+
+Response `200`:
+```json
+{
+  "token": "imp_7f3c9a2b1d",
+  "summary": { "toCreate": 3, "toUpdate": 6, "toSkip": 1, "errors": 1, "totalRows": 11 },
+  "rows": [
+    {
+      "row": 2,
+      "name": "Orin Linen Dress",
+      "slug": "orin-linen-dress",
+      "action": "update",
+      "changes": {
+        "price": { "from": 5400, "to": 5900 },
+        "quantity": { "from": 3, "to": 8 },
+        "description": { "changed": true },
+        "category": { "from": "women", "to": "women" }
+      },
+      "notes": [],
+      "message": null
+    },
+    {
+      "row": 3,
+      "name": "Marren Wool Coat",
+      "slug": "marren-wool-coat",
+      "action": "create",
+      "changes": {
+        "price": { "from": null, "to": 12800 },
+        "quantity": { "from": null, "to": 4 },
+        "description": { "changed": true },
+        "category": { "from": null, "to": "women" }
+      },
+      "notes": [ "Created as a draft — add photos and publish from the Products page" ],
+      "message": null
+    },
+    {
+      "row": 4,
+      "name": "Sample Multi Bag",
+      "slug": "sample-multi-bag",
+      "action": "update",
+      "changes": { "price": { "from": 6800, "to": 7200 }, "description": { "changed": false } },
+      "notes": [ "Displayed price and description updated — set stock and per-option prices on the product page" ],
+      "message": null
+    },
+    {
+      "row": 5,
+      "name": "Vintage Scarf",
+      "slug": "vintage-scarf",
+      "action": "skip",
+      "changes": {},
+      "notes": [ "This product is archived — restore it first, then re-import" ],
+      "message": null
+    },
+    {
+      "row": 6,
+      "name": "Broken Row",
+      "slug": "broken-row",
+      "action": "error",
+      "changes": {},
+      "notes": [],
+      "message": "Price must be a whole number of shillings"
+    }
+  ]
+}
+```
+
+Field notes:
+- `token` — opaque, prefix `imp_`. References the server-cached plan. Short TTL
+  (~15 minutes). **Single-use** at `/commit`.
+- `summary` — `toCreate + toUpdate + toSkip + errors == totalRows`. `totalRows` counts
+  data rows only (header and `#` comment lines excluded).
+- `rows[].row` — 1-based line number **as a spreadsheet shows it** (header = row 1, first
+  data row = row 2).
+- `rows[].action` ∈ `create` | `update` | `skip` | `error`.
+- `rows[].changes` — **only keys that actually change are present**:
+  - `price`: `{ "from": <int|null>, "to": <int> }` (`from` null on create).
+  - `quantity`: `{ "from": <int|null>, "to": <int> }` — present on create, and on a
+    single-variant update where the number differs. **Never present for a multi-variant
+    update.**
+  - `description`: `{ "changed": true|false }` — present only when the `description`
+    column is in the file; `changed` is `false` when the cell is blank or already equal
+    to the current value (i.e. no write will happen).
+  - `category`: `{ "from": <string|null>, "to": <string> }` — present only when the
+    column is in the file and non-blank; on an unchanged update `from` and `to` are
+    equal (lets the UI show "stays in women").
+- `rows[].notes` — array of human-readable strings (draft-created note, multi-variant
+  note, skip reason). Empty array when none.
+- `rows[].message` — `null` unless `action == "error"`, then a single brand-voiced
+  explanation.
+
+Errors — `422 validation_error` **only for a structurally unusable upload** (`error.message`
+names the problem): not CSV / unparseable, no header row, a required column entirely
+absent (`name`, `price` or `quantity` under any accepted synonym), empty file (header
+only), file over 2 MB, more than 1000 data rows. Per-row problems are **never** a `422` —
+they are `action: "error"` entries inside a `200`.
+Other errors: `401 unauthorized`, `403 forbidden`, `429 rate_limited` (rate-limited per
+admin identity).
+
+### `POST /api/admin/products/import/commit`
+
+Applies exactly the plan from a matching preview.
+
+Headers: `Idempotency-Key: <uuid>` (**required** — same semantics as `POST /api/orders`:
+same key + same body within 24h replays the stored result; same key + different body →
+`409 idempotency_key_reused`).
+
+Request:
+```json
+{ "token": "imp_7f3c9a2b1d" }
+```
+
+Behaviour:
+- Look up the cached plan for `token`. Unknown / never-issued → `404 not_found` code
+  `import_token_unknown`. Expired (TTL passed) → `410 gone` code
+  `import_token_expired`. Already consumed by a previous *distinct* commit → `409
+  conflict` code `import_token_used`.
+- Apply `create` and `update` rows in file order, **each in its own transaction** (a
+  single bad row does not roll back the rest). `skip` rows are echoed but not applied;
+  `error` rows from the preview are not carried into the commit response.
+- For each single-variant update whose `quantity` changed, write the `bulk_import`
+  inventory adjustment (same transaction as that product's update).
+- A row planned as `create` / `update` that fails at apply time (a concurrent edit, a
+  slug/SKU collision that appeared since preview, the product was archived since
+  preview) → `result: "failed"` with a `message`; the remaining rows still commit. This
+  is reported as **HTTP `200` partial success**, not a top-level error.
+- On success the token is marked consumed.
+
+Response `200`:
+```json
+{
+  "created": 3,
+  "updated": 5,
+  "skipped": 1,
+  "failed": 1,
+  "rows": [
+    { "row": 2, "name": "Orin Linen Dress", "result": "updated", "productId": "prod_1042", "message": null },
+    { "row": 3, "name": "Marren Wool Coat", "result": "created", "productId": "prod_2213", "message": "Created as a draft — add photos and publish" },
+    { "row": 5, "name": "Vintage Scarf", "result": "skipped", "productId": null, "message": "Archived — restore it first" },
+    { "row": 7, "name": "Rush Belt", "result": "failed", "productId": null, "message": "Someone edited this product while you were reviewing — re-export and try again" }
+  ]
+}
+```
+- `result` ∈ `created` | `updated` | `skipped` | `failed`.
+- `created` / `updated` / `skipped` / `failed` are the final tallies;
+  `created + updated + skipped + failed` equals the preview's `toCreate + toUpdate +
+  toSkip`. `rows[]` contains one entry per applied-or-skipped preview row (preview
+  `error` rows are not included — the owner fixes the spreadsheet and re-uploads).
+- `rows[].productId` — the affected product id for `created` / `updated`; `null` for
+  `skipped` / `failed`.
+
+Errors: `404 not_found` (`import_token_unknown`), `410 gone` (`import_token_expired`),
+`409 conflict` (`import_token_used`, `idempotency_key_reused`), `422 validation_error`
+(body is not `{ "token": "imp_..." }`, or missing `Idempotency-Key` header),
+`401 unauthorized`, `403 forbidden`.
+
+### `GET /api/admin/products/export`
+
+Response `200`. Headers: `Content-Type: text/csv; charset=utf-8`,
+`Content-Disposition: attachment; filename="house-of-esther-products-<date>.csv"`
+(`<date>` = server date, `yyyy-MM-dd`), `Cache-Control: no-store`.
+
+Body: a header row, then one row per **non-archived** product (`status` in `draft`,
+`published`), ordered by name:
+```
+name,price,description,quantity,category,status
+Orin Linen Dress,5400,"A compact everyday linen dress.",8,women,published
+Marren Wool Coat,12800,"",4,women,draft
+Sample Multi Bag,6800,"Roomy two-tone tote.",,accessories,published
+```
+- `price` = `base_price_amount` (integer, no thousands separators, no currency prefix).
+- `quantity` = the single variant's `stock` for a single-variant product; **blank** for a
+  multi-variant product (per-option stock is managed on the product page).
+- `description` = `short_description` (empty string if null); CSV-quoted when it contains
+  a comma, quote or newline.
+- `category` = the product's category slug. `status` ∈ `draft` | `published`.
+- Round-trips: re-importing an unmodified export is all `update` rows with no changes
+  (multi-variant rows: blank quantity leaves stock alone; price echoes the base price).
+
+Errors: `401 unauthorized`, `403 forbidden`.
+
+### `GET /api/admin/products/import/template`
+
+Response `200`. Headers: `Content-Type: text/csv; charset=utf-8`,
+`Content-Disposition: attachment; filename="house-of-esther-import-template.csv"`,
+`Cache-Control: no-store`.
+
+Body: one `#` guidance line, the header row, two illustrative example rows:
+```
+# Fill one row per product. A name that matches an existing product updates it; a new name creates a DRAFT product (add photos, then publish, from the Products page). category is required for new products, optional when updating. price and quantity are whole numbers. Delete these example rows before importing.
+name,price,description,quantity,category
+Orin Linen Dress,5400,A compact everyday linen dress in vegetable-washed linen.,8,women
+Harlan Leather Belt,2200,,15,accessories
+```
+If the owner fills in rows under the header and removes the examples, the file imports
+cleanly. The `#` line is ignored by the importer.
+
+Errors: `401 unauthorized`, `403 forbidden`.
+
+### Schema / backend notes (A17)
+
+- **New inventory-adjustment reason `bulk_import`.** `inventory_adjustments.reason` is a
+  **DB `CHECK` constraint** (migration `20260906000001-init`:
+  `check (reason in ('restock','correction','damage','return_to_stock'))`). Adding the
+  value needs a **new numbered migration** that drops and recreates the constraint, e.g.:
+  ```sql
+  alter table inventory_adjustments drop constraint inventory_adjustments_reason_check;
+  --;;
+  alter table inventory_adjustments add constraint inventory_adjustments_reason_check
+    check (reason in ('restock','correction','damage','return_to_stock','bulk_import'));
+  ```
+  The malli enum in `AdjReq` (`house-of-esther.admin.inventory`) stays as the original
+  four — `POST /api/admin/inventory/adjustments` does **not** accept `bulk_import`;
+  that value is written only by the import-commit path. Surfacing `bulk_import` as a
+  label/filter in the adjustments history UI is optional.
+- **New dependency:** `org.clojure/data.csv` (add to `deps.edn`) — used for both parse
+  (import) and generate (export + template).
+- **Plan cache.** `token → plan` may be an in-process map with a ~15-minute TTL and a
+  single-use flag. This is an explicit **single-instance backend assumption** (same class
+  as other in-memory state); a multi-instance deployment must move it to Postgres or a
+  shared cache. The stored plan must hold enough to apply without re-reading the file:
+  per-row action, the target `productId` (updates) or full create payload, the computed
+  deltas, and token-consumption state.
+- **Slug generation** must match the product create form's `slugify` exactly (see
+  Matching rule above) so a CSV-created product and a form-created one land on the same
+  `products.slug`. `POST /api/admin/products` currently takes `slug` from the client; the
+  importer derives it server-side with the identical rule.
+- **SKU generation** for the default variant must be deterministic from the slug and
+  unique (`product_variants.sku` is `unique`) — append `-2`, `-3`, … on collision.
+- **Multipart** parsing already exists for `POST /api/admin/images`; reuse it. Enforce
+  the 2 MB / 1000-row limits at the boundary before planning.
+- Rate-limit `POST /api/admin/products/import` per admin identity (consistent with the
+  contract's rate-limiting stance; currently unenforced like the others).
 
 ---
 

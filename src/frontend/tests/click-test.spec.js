@@ -879,6 +879,150 @@ test.describe('admin', () => {
     await expect(page.locator('.toast-region')).toContainText(/Password changed/i);
   });
 
+  test('A17: Products page shows the three catalogue-tools controls pointing at the right URLs', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    const errors = trackErrors(page);
+    await page.goto('/admin/products.html');
+
+    const tools = page.locator('.catalogue-tools');
+    await expect(tools).toContainText('Catalogue tools');
+    await expect(tools.getByRole('link', { name: 'Bulk import' })).toHaveAttribute('href', '/admin/product-import.html');
+    await expect(tools.getByRole('link', { name: 'Download current products (CSV)' })).toHaveAttribute('href', '/api/admin/products/export');
+    await expect(tools.getByRole('link', { name: 'Download template' })).toHaveAttribute('href', '/api/admin/products/import/template');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('A17 / JOURNEY 6: upload -> review plan -> confirm -> done', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    const errors = trackErrors(page);
+
+    await page.goto('/admin/products.html');
+    await page.locator('.catalogue-tools').getByRole('link', { name: 'Bulk import' }).click();
+    await expect(page).toHaveURL(/product-import\.html/);
+    await expect(page.locator('.admin-main h1')).toHaveText('Bulk import products');
+
+    // step 1: preview disabled until a file is chosen
+    await expect(page.locator('#import-preview-btn')).toBeDisabled();
+    await page.setInputFiles('#import-file', {
+      name: 'catalogue.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('name,price,quantity,category\nMarren Wool Coat,12800,4,women\n'),
+    });
+    await expect(page.locator('#import-filename')).toHaveText('catalogue.csv');
+    await expect(page.locator('#import-preview-btn')).toBeEnabled();
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+
+    // step 2: count strip
+    const strip = page.locator('.import-countstrip');
+    await expect(strip).toContainText('2 new');
+    await expect(strip).toContainText('3 to update');
+    await expect(strip).toContainText('1 skipped');
+    await expect(strip).toContainText('1 with a problem');
+
+    // per-row badges + human-readable changes
+    const rowOrin = page.locator('.import-table tbody tr', { hasText: 'Orin Linen Dress' });
+    await expect(rowOrin.locator('.import-badge')).toHaveText('Update');
+    await expect(rowOrin).toContainText('Price KES 5,400 → KES 5,900');
+    await expect(rowOrin).toContainText('Stock 9 → 12');
+    await expect(rowOrin).toContainText('Description updated');
+
+    const rowMarren = page.locator('.import-table tbody tr', { hasText: 'Marren Wool Coat' });
+    await expect(rowMarren.locator('.import-badge')).toHaveText('New');
+    await expect(rowMarren).toContainText('Price KES 12,800');
+    await expect(rowMarren).toContainText('Created as a draft');
+
+    const rowBag = page.locator('.import-table tbody tr', { hasText: 'Sample Multi Bag' });
+    await expect(rowBag).toContainText('set stock and per-option prices on the product page');
+    await expect(rowBag).not.toContainText('Stock');
+
+    const rowScarf = page.locator('.import-table tbody tr', { hasText: 'Vintage Scarf' });
+    await expect(rowScarf.locator('.import-badge')).toHaveText('Skip');
+    await expect(rowScarf).toHaveClass(/import-row--muted/);
+
+    const rowBroken = page.locator('.import-table tbody tr', { hasText: 'Broken Row' });
+    await expect(rowBroken.locator('.import-badge')).toHaveText('Problem');
+    await expect(rowBroken).toContainText('Price must be a whole number of shillings');
+
+    // confirm carries the token + an Idempotency-Key header
+    const confirm = page.getByRole('button', { name: 'Apply 5 changes' });
+    await expect(confirm).toBeEnabled();
+    const [commitReq] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/admin/products/import/commit') && r.method() === 'POST'),
+      confirm.click(),
+    ]);
+    expect(JSON.parse(commitReq.postData())).toHaveProperty('token');
+    expect(commitReq.headers()['idempotency-key']).toBeTruthy();
+
+    // step 3: done
+    await expect(page.locator('.import-result-summary')).toHaveText(
+      "2 products created, 2 updated — 1 skipped, 1 couldn't be applied"
+    );
+    await expect(page.getByText('New products are drafts')).toBeVisible();
+    await expect(page.locator('.import-failed')).toContainText('Harlan Leather Belt');
+    await expect(page.getByRole('link', { name: 'Marren Wool Coat' })).toHaveAttribute('href', /product-edit\.html\?id=prod_marren/);
+    await page.getByRole('link', { name: 'Back to products' }).click();
+    await expect(page).toHaveURL(/admin\/products\.html/);
+
+    expect(errors).toEqual([]);
+  });
+
+  test('A17: a 422 on upload shows the error and stays on step 1', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    await page.goto('/admin/product-import.html');
+    await page.setInputFiles('#import-file', {
+      name: 'broken.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('not,a,valid\nfile\n'),
+    });
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+
+    await expect(page.locator('#import-upload-msg')).toContainText("That file couldn't be read");
+    await expect(page.locator('.import-countstrip')).toHaveCount(0);
+    await expect(page.locator('#import-preview-btn')).toBeEnabled();
+  });
+
+  test('A17: Confirm is disabled when nothing will apply', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    await page.route('**/api/admin/products/import', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          token: 'imp_nochange',
+          summary: { toCreate: 0, toUpdate: 0, toSkip: 0, errors: 0, totalRows: 1 },
+          rows: [{ row: 2, name: 'Orin Linen Dress', slug: 'orin-linen-dress', action: 'update', changes: {}, notes: [], message: null }],
+        }),
+      })
+    );
+    await page.goto('/admin/product-import.html');
+    await page.setInputFiles('#import-file', { name: 'unchanged.csv', mimeType: 'text/csv', buffer: Buffer.from('name,price,quantity\nOrin Linen Dress,5400,9\n') });
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+    await expect(page.getByRole('button', { name: 'Apply 0 changes' })).toBeDisabled();
+  });
+
+  test('A17: token-expired on commit shows the re-upload message and returns to step 1', async ({ page }) => {
+    await installMockApi(page, { admin: true, importCommitExpired: true });
+    await page.goto('/admin/product-import.html');
+    await page.setInputFiles('#import-file', { name: 'catalogue.csv', mimeType: 'text/csv', buffer: Buffer.from('name,price,quantity,category\nMarren Wool Coat,12800,4,women\n') });
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+    await page.getByRole('button', { name: 'Apply 5 changes' }).click();
+
+    await expect(page.locator('#import-upload-msg')).toContainText('upload the file again');
+    await expect(page.locator('.import-countstrip')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Preview changes' })).toBeVisible();
+  });
+
+  test('A17: guide "adding a product" area covers bulk import', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    await page.goto('/admin/guide.html');
+    const section = page.locator('#adding-a-product');
+    await expect(section).toContainText('Adding lots of products at once');
+    await expect(section).toContainText('Bulk import');
+    await expect(section).toContainText(/draft/i);
+    await expect(section).toContainText(/Inventory page/i);
+  });
+
   test('GUIDE: getting-started explains the Team capability', async ({ page }) => {
     await installMockApi(page, { admin: true, adminRole: 'owner' });
     await page.goto('/admin/guide.html');

@@ -8,6 +8,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [jsonista.core :as j]
             [house-of-esther.config :as config]
+            [house-of-esther.admin.product-import :as pimport]
             [house-of-esther.db :as db]
             [house-of-esther.migrate :as migrate]
             [house-of-esther.router :as router]
@@ -49,6 +50,32 @@
                        (string? b) (try (j/read-value b mapper) (catch Exception _ b))
                        (instance? java.io.InputStream b) (j/read-value b mapper)
                        :else b))]
+    {:status (:status resp) :body parsed :jar (collect-cookies jar resp) :raw resp}))
+
+(defn- multipart-call
+  "POST a single-part multipart/form-data body (the CSV upload) through the
+   full stack."
+  [{:keys [uri jar csrf csv]}]
+  (let [boundary "----hoeboundary7f3c9a2b"
+        body (str "--" boundary "\r\n"
+                  "Content-Disposition: form-data; name=\"file\"; filename=\"import.csv\"\r\n"
+                  "Content-Type: text/csv\r\n\r\n"
+                  csv "\r\n"
+                  "--" boundary "--\r\n")
+        resp (*handler*
+              {:request-method :post
+               :uri uri
+               :remote-addr "203.0.113.7"
+               :headers (cond-> {"accept" "application/json"
+                                 "content-type" (str "multipart/form-data; boundary=" boundary)}
+                          csrf (assoc "x-csrf-token" csrf)
+                          (cookie-header jar) (assoc "cookie" (cookie-header jar)))
+               :body (ByteArrayInputStream. (.getBytes body "UTF-8"))})
+        b (:body resp)
+        parsed (cond (nil? b) nil
+                     (string? b) (try (j/read-value b mapper) (catch Exception _ b))
+                     (instance? java.io.InputStream b) (j/read-value b mapper)
+                     :else b)]
     {:status (:status resp) :body parsed :jar (collect-cookies jar resp) :raw resp}))
 
 (use-fixtures :once
@@ -291,3 +318,217 @@
         (let [csrf (get jar "he_csrf")]
           (is (= 404 (:status (call {:method :patch :uri "/api/admin/contacts/MSG-2026-9999" :jar jar
                                      :headers {"x-csrf-token" csrf} :body {:handled true}})))))))))
+
+;; --- A17 product CSV bulk import / export ---------------------------
+
+(def ^:private mixed-csv
+  (str/join "\n"
+    ["# this comment line must be ignored by the importer"
+     "Category,Name,Price (KES),Quantity,Description"
+     "accessories,Kito Woven Tote,3600,20,A generous handwoven sisal market tote."
+     "accessories,Harlan Leather Crossbody,7200,5,Updated crossbody copy"
+     "women,Bulk Import Test Jacket,9900,3,A brand new test jacket"
+     "women,Ephemeral Archived Item,1000,1,"
+     "accessories,Kito Woven Tote,3600,5,"
+     "women,Broken Price Row,not-a-number,4,"]))
+
+(deftest admin-product-bulk-import
+  (when db-url
+    (let [{:keys [jar]} (admin-login)
+          csrf (get jar "he_csrf")
+          hdr {"x-csrf-token" csrf}]
+
+      ;; an archived product for the skip case
+      (call {:method :post :uri "/api/admin/products" :jar jar :headers hdr
+             :body {:name "Ephemeral Archived Item" :slug "ephemeral-archived-item"
+                    :category "women" :basePrice {:amount 1000 :currency "KES"}
+                    :variants [{:options {} :sku "EPHEMERAL-ARCHIVED-ITEM"
+                                :price {:amount 1000 :currency "KES"} :stock 1}]
+                    :status "archived"}})
+
+      (testing "auth required"
+        ;; POST without a session is stopped at CSRF (403) before require-admin;
+        ;; the unauthenticated GET download is a clean 401.
+        (is (#{401 403} (:status (multipart-call {:uri "/api/admin/products/import" :csv "name,price,quantity\nX,1,1"}))))
+        (is (= 401 (:status (call {:method :get :uri "/api/admin/products/export"})))))
+
+      (testing "preview: order-independent + synonym headers, plans but writes nothing"
+        (let [r (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv mixed-csv})
+              b (:body r)]
+          (is (= 200 (:status r)) (pr-str b))
+          (is (str/starts-with? (:token b) "imp_"))
+          (is (= {:toCreate 1 :toUpdate 2 :toSkip 1 :errors 2 :totalRows 6}
+                 (:summary b)))
+          (let [rows (into {} (map (juxt :row identity) (:rows b)))]
+            (is (= "update" (:action (rows 2))))
+            (is (= {:from 12 :to 20} (get-in (rows 2) [:changes :quantity])))
+            (is (= "update" (:action (rows 3))))
+            (is (= {:from 6800 :to 7200} (get-in (rows 3) [:changes :price])))
+            (is (nil? (get-in (rows 3) [:changes :quantity])) "multi-variant update never carries quantity")
+            (is (= "create" (:action (rows 4))))
+            (is (= "skip" (:action (rows 5))))
+            (is (= "error" (:action (rows 6))))
+            (is (str/includes? (:message (rows 6)) "Duplicate of row 2"))
+            (is (= "error" (:action (rows 7)))))
+          ;; nothing written
+          (is (= 12 (:stock (db/q1 ["select stock from product_variants where id = 'var_kito_nat'"]))))
+          (is (nil? (db/q1 ["select 1 from products where slug = 'bulk-import-test-jacket'"])))
+          (is (= 6800 (:basePriceAmount (db/q1 ["select base_price_amount as \"basePriceAmount\" from products where id = 'prod_harlan'"]))))
+          (is (zero? (or (db/one-val ["select count(*) from inventory_adjustments where reason = 'bulk_import'"]) 0)))))
+
+      (testing "commit applies exactly the plan (partial-success shape)"
+        (let [harlan-before (db/q ["select id, stock, price_amount as \"pa\" from product_variants
+                                    where product_id = 'prod_harlan' order by id"])
+              tok (:token (:body (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv mixed-csv})))
+              r (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                       :headers (assoc hdr "idempotency-key" "imp-commit-k1")
+                       :body {:token tok}})
+              b (:body r)]
+          (is (= 200 (:status r)) (pr-str b))
+          (is (= 1 (:created b)))
+          (is (= 2 (:updated b)))
+          (is (= 1 (:skipped b)))
+          (is (= 0 (:failed b)))
+          (is (= 4 (count (:rows b))) "error rows are not carried into the commit")
+
+          (testing "new product is a draft with one auto-SKU variant"
+            (let [p (db/q1 ["select id, status, base_price_amount as \"bp\" from products where slug = 'bulk-import-test-jacket'"])
+                  vs (db/q ["select sku, stock, price_amount as \"pa\" from product_variants where product_id = ?" (:id p)])]
+              (is (= "draft" (:status p)))
+              (is (= 9900 (:bp p)))
+              (is (= 1 (count vs)))
+              (is (= "BULK-IMPORT-TEST-JACKET" (:sku (first vs))))
+              (is (= 3 (:stock (first vs))))
+              (is (= 9900 (:pa (first vs))))))
+
+          (testing "single-variant stock change went through an audited bulk_import adjustment"
+            (is (= 20 (:stock (db/q1 ["select stock from product_variants where id = 'var_kito_nat'"]))))
+            (let [adj (db/q1 ["select delta, reason, created_by as \"cb\" from inventory_adjustments
+                               where variant_id = 'var_kito_nat' and reason = 'bulk_import'"])]
+              (is (= 8 (:delta adj)))
+              (is (= "usr_admin1" (:cb adj)))))
+
+          (testing "multi-variant product got price + description only; variants untouched"
+            (is (= 7200 (:bp (db/q1 ["select base_price_amount as \"bp\" from products where id = 'prod_harlan'"]))))
+            (is (= "Updated crossbody copy" (:sd (db/q1 ["select short_description as \"sd\" from products where id = 'prod_harlan'"]))))
+            (is (= harlan-before
+                   (db/q ["select id, stock, price_amount as \"pa\" from product_variants
+                           where product_id = 'prod_harlan' order by id"]))
+                "no variant price or stock touched on a multi-variant update")
+            (is (zero? (or (db/one-val ["select count(*) from inventory_adjustments a
+                                         join product_variants v on v.id = a.variant_id
+                                         where v.product_id = 'prod_harlan' and a.reason = 'bulk_import'"]) 0))
+                "no adjustment written for a multi-variant update"))
+
+          (testing "same key + same body -> replay identical response"
+            (let [r2 (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                            :headers (assoc hdr "idempotency-key" "imp-commit-k1")
+                            :body {:token tok}})]
+              (is (= 200 (:status r2)))
+              (is (= b (:body r2)))))
+
+          (testing "fresh key on a consumed token -> 409 import_token_used"
+            (let [r3 (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                            :headers (assoc hdr "idempotency-key" "imp-commit-k2")
+                            :body {:token tok}})]
+              (is (= 409 (:status r3)))
+              (is (= "import_token_used" (get-in r3 [:body :error :code])))))))
+
+      (testing "idempotency key reused with a different body -> 409 idempotency_key_reused"
+        (let [tok2 (:token (:body (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                                                   :csv "name,price,quantity\nKito Woven Tote,3600,20"})))
+              r (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                       :headers (assoc hdr "idempotency-key" "imp-commit-k1")
+                       :body {:token tok2}})]
+          (is (= 409 (:status r)))
+          (is (= "idempotency_key_reused" (get-in r [:body :error :code])))))
+
+      (testing "unknown token -> 404 import_token_unknown"
+        (let [r (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                       :headers (assoc hdr "idempotency-key" "imp-commit-k9")
+                       :body {:token "imp_doesnotexist"}})]
+          (is (= 404 (:status r)))
+          (is (= "import_token_unknown" (get-in r [:body :error :code])))))
+
+      (testing "expired token -> 410 import_token_expired"
+        (let [tok3 (:token (:body (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                                                   :csv "name,price,quantity\nKito Woven Tote,3600,12"})))]
+          (swap! @#'pimport/plan-cache update tok3 assoc :created-at 0)
+          (let [r (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                         :headers (assoc hdr "idempotency-key" "imp-commit-k10")
+                         :body {:token tok3}})]
+            (is (= 410 (:status r)))
+            (is (= "import_token_expired" (get-in r [:body :error :code]))))))
+
+      (testing "missing Idempotency-Key -> 422"
+        (let [tok (:token (:body (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                                                  :csv "name,price,quantity\nKito Woven Tote,3600,12"})))
+              r (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                       :headers hdr :body {:token tok}})]
+          (is (= 422 (:status r)))))
+
+      (testing "structural 422s"
+        (is (= 422 (:status (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                                             :csv "name,price\nFoo,100"})))
+            "a required column entirely absent")
+        (let [big (str/join "\n" (cons "name,price,quantity"
+                                       (for [i (range 1001)] (str "Item " i ",100,1"))))]
+          (is (= 422 (:status (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv big})))
+              "more than 1000 data rows")))
+
+      (testing "a non-CSV upload -> 422 with a clear message (not a missing-column error)"
+        (let [png (str "PNG\r\n\n" (apply str (repeat 40 " ÿ")))
+              r (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv png})]
+          (is (= 422 (:status r)))
+          (is (= "validation_error" (get-in r [:body :error :code])))
+          (is (str/includes? (get-in r [:body :error :message]) "doesn't look like a CSV")))
+        (let [txt "just some notes about the shop\nno columns here"
+              r (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv txt})]
+          (is (= 422 (:status r)))
+          (is (str/includes? (get-in r [:body :error :message]) "doesn't look like a CSV"))))
+
+      (testing "export round-trips to an all-skip import that writes nothing"
+        (let [before (into {} (map (juxt :id :updatedAt)
+                                   (db/q ["select id, updated_at as \"updatedAt\" from products
+                                           where status in ('draft','published')"])))
+              r (call {:method :get :uri "/api/admin/products/export" :jar jar})
+              csv (get-in r [:raw :body])]
+          (is (= 200 (:status r)))
+          (is (str/starts-with? (get-in r [:raw :headers "Content-Type"]) "text/csv"))
+          (is (str/includes? (get-in r [:raw :headers "Content-Disposition"]) "house-of-esther-products-"))
+          (is (= "no-store" (get-in r [:raw :headers "Cache-Control"])))
+          (is (= "name,price,description,quantity,category,status"
+                 (first (str/split-lines csv))))
+          (let [pr (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv csv})
+                sm (get-in pr [:body :summary])]
+            (is (zero? (:errors sm)))
+            (is (zero? (:toCreate sm)))
+            (is (zero? (:toUpdate sm)) "an untouched export re-imports with nothing to update")
+            (is (= (:totalRows sm) (:toSkip sm)) "every row is a no-op skip")
+            (is (every? #(= {} (:changes %)) (:rows (:body pr))))
+            (is (every? #(or (not= "skip" (:action %))
+                             (= ["No changes — already up to date"] (:notes %)))
+                        (filter #(= "skip" (:action %)) (:rows (:body pr)))))
+            (let [tok (:token (:body pr))
+                  cr (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                            :headers (assoc hdr "idempotency-key" "imp-roundtrip-1")
+                            :body {:token tok}})]
+              (is (= 200 (:status cr)))
+              (is (zero? (:created (:body cr))))
+              (is (zero? (:updated (:body cr))))
+              (is (zero? (:failed (:body cr))))
+              (is (= before
+                     (into {} (map (juxt :id :updatedAt)
+                                   (db/q ["select id, updated_at as \"updatedAt\" from products
+                                           where status in ('draft','published')"]))))
+                  "no product's updated_at moved")))))
+
+      (testing "template downloads and imports cleanly when filled in"
+        (let [r (call {:method :get :uri "/api/admin/products/import/template" :jar jar})
+              csv (get-in r [:raw :body])]
+          (is (= 200 (:status r)))
+          (is (str/starts-with? csv "#"))
+          (is (some #(= "name,price,description,quantity,category" %) (str/split-lines csv)))
+          (let [pr (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv csv})]
+            (is (= 200 (:status pr)))
+            (is (zero? (:errors (get-in pr [:body :summary]))))))))))

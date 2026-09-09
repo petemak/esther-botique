@@ -365,6 +365,173 @@ table.admin-table {
   opacity: 0.75;
 }
 
+/* ---- Catalogue tools row (products list) ---- */
+.catalogue-tools {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--space-s) var(--space-m);
+  margin-bottom: var(--space-l);
+}
+.catalogue-tools__title {
+  font-size: var(--step-0);
+  margin: 0 0 var(--space-2xs);
+}
+.catalogue-tools__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+}
+.catalogue-tools .hint {
+  margin-top: var(--space-2xs);
+}
+
+/* ---- Bulk import wizard ---- */
+.import-backlink {
+  margin-bottom: var(--space-s);
+  font-size: var(--step--1);
+}
+.import-card {
+  max-width: 60rem;
+}
+.import-rules {
+  padding-left: 1.2em;
+}
+.import-rules li {
+  margin-top: var(--space-3xs);
+}
+.import-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-m);
+  font-size: var(--step--1);
+}
+.import-steps__item {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  color: var(--text-muted);
+}
+.import-steps__item.is-current {
+  border-color: var(--color-cta);
+  color: var(--color-cta);
+  font-weight: 700;
+}
+.import-steps__item.is-done {
+  color: var(--color-primary);
+}
+.import-upload__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  flex-wrap: wrap;
+}
+.import-filename {
+  color: var(--text-muted);
+  font-size: var(--step--1);
+}
+.import-countstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  margin: var(--space-s) 0;
+}
+.import-count {
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius);
+  font-size: var(--step--1);
+  font-weight: 700;
+  border: 1px solid var(--hairline);
+}
+.import-count--new {
+  color: #8a6a1f;
+  background: rgba(176, 138, 70, 0.16);
+  border-color: rgba(176, 138, 70, 0.4);
+}
+.import-count--update {
+  color: var(--color-cta);
+  background: rgba(158, 60, 136, 0.12);
+  border-color: rgba(158, 60, 136, 0.35);
+}
+.import-count--skip {
+  color: var(--text-muted);
+  background: var(--color-bg-sink);
+}
+.import-count--problem {
+  color: var(--color-danger);
+  background: rgba(168, 40, 57, 0.1);
+  border-color: rgba(168, 40, 57, 0.35);
+}
+.import-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid var(--hairline);
+}
+.import-badge--new {
+  color: #8a6a1f;
+  background: rgba(176, 138, 70, 0.16);
+  border-color: rgba(176, 138, 70, 0.4);
+}
+.import-badge--update {
+  color: var(--color-cta);
+  background: rgba(158, 60, 136, 0.12);
+  border-color: rgba(158, 60, 136, 0.35);
+}
+.import-badge--skip {
+  color: var(--text-muted);
+  background: var(--color-bg-sink);
+}
+.import-badge--problem {
+  color: var(--color-danger);
+  background: rgba(168, 40, 57, 0.1);
+  border-color: rgba(168, 40, 57, 0.35);
+}
+.import-table td {
+  white-space: normal;
+  vertical-align: top;
+}
+.import-row--muted td {
+  color: var(--text-muted);
+  background: var(--color-bg-sink);
+}
+.import-changes {
+  margin: 0;
+  padding-left: 1.1em;
+}
+.import-changes li {
+  margin-top: var(--space-3xs);
+}
+.import-note {
+  margin: 0 0 var(--space-3xs);
+  font-size: var(--step--1);
+  color: var(--text-muted);
+}
+.import-note--problem {
+  color: var(--color-danger);
+}
+.import-confirm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  align-items: center;
+}
+.import-result-summary {
+  font-size: var(--step-1);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.import-failed {
+  padding-left: 1.2em;
+}
+
 /* ---- Shop owner's guide (static help page) ---- */
 .guide {
   max-width: var(--measure);

@@ -562,6 +562,134 @@ export async function installMockApi(page, opts = {}) {
     if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'PATCH') return json(200, { id: path.split('/')[3], ...body });
     if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'DELETE') return json(200, { id: path.split('/')[3], status: 'archived' });
     if (path === '/admin/images' && method === 'POST') return json(201, { ...IMG(`img_${Date.now()}`, ''), thumbBytes: 41213, fullBytes: 214880 });
+
+    // ---- A17 product bulk import / export ----
+    if (path === '/admin/products/export' && method === 'GET') {
+      return route.fulfill({
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="house-of-esther-products-2026-09-09.csv"',
+          'Cache-Control': 'no-store',
+        },
+        body: [
+          'name,price,description,quantity,category,status',
+          'Harlan Leather Crossbody,6800,"A compact everyday crossbody.",7,accessories,published',
+          'Orin Linen Dress,5400,"A breathable linen dress.",9,women,published',
+          'Sample Multi Bag,6800,"Roomy two-tone tote.",,accessories,published',
+          '',
+        ].join('\n'),
+      });
+    }
+    if (path === '/admin/products/import/template' && method === 'GET') {
+      return route.fulfill({
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="house-of-esther-import-template.csv"',
+          'Cache-Control': 'no-store',
+        },
+        body: [
+          '# Fill one row per product. A matching name updates it; a new name creates a DRAFT. Delete these example rows before importing.',
+          'name,price,description,quantity,category',
+          'Orin Linen Dress,5400,A compact everyday linen dress.,8,women',
+          'Harlan Leather Belt,2200,,15,accessories',
+          '',
+        ].join('\n'),
+      });
+    }
+    if (path === '/admin/products/import' && method === 'POST') {
+      if (!state.session) return err(401, 'unauthorized', 'Sign in.');
+      const raw = req.postData() || '';
+      if (/filename="[^"]*(broken|missing)[^"]*"/i.test(raw)) {
+        return err(422, 'validation_error', 'The file is missing a required column: quantity.');
+      }
+      state.importToken = `imp_${Date.now().toString(16)}`;
+      state.importUsed = false;
+      return json(200, {
+        token: state.importToken,
+        summary: { toCreate: 2, toUpdate: 3, toSkip: 1, errors: 1, totalRows: 7 },
+        rows: [
+          {
+            row: 2, name: 'Orin Linen Dress', slug: 'orin-linen-dress', action: 'update',
+            changes: {
+              price: { from: 5400, to: 5900 },
+              quantity: { from: 9, to: 12 },
+              description: { changed: true },
+              category: { from: 'women', to: 'women' },
+            },
+            notes: [], message: null,
+          },
+          {
+            row: 3, name: 'Marren Wool Coat', slug: 'marren-wool-coat', action: 'create',
+            changes: {
+              price: { from: null, to: 12800 },
+              quantity: { from: null, to: 4 },
+              description: { changed: true },
+              category: { from: null, to: 'women' },
+            },
+            notes: ['Created as a draft — add photos and publish from the Products page'], message: null,
+          },
+          {
+            row: 4, name: 'Suede Weekender', slug: 'suede-weekender', action: 'create',
+            changes: {
+              price: { from: null, to: 9500 },
+              quantity: { from: null, to: 6 },
+              category: { from: null, to: 'accessories' },
+            },
+            notes: ['Created as a draft — add photos and publish from the Products page'], message: null,
+          },
+          {
+            row: 5, name: 'Sample Multi Bag', slug: 'sample-multi-bag', action: 'update',
+            changes: { price: { from: 6800, to: 7200 }, description: { changed: false } },
+            notes: ['Displayed price and description updated — set stock and per-option prices on the product page'], message: null,
+          },
+          {
+            row: 6, name: 'Harlan Leather Belt', slug: 'harlan-leather-belt', action: 'update',
+            changes: { price: { from: 2200, to: 2400 } },
+            notes: [], message: null,
+          },
+          {
+            row: 7, name: 'Vintage Scarf', slug: 'vintage-scarf', action: 'skip',
+            changes: {},
+            notes: ['This product is archived — restore it first, then re-import'], message: null,
+          },
+          {
+            row: 8, name: 'Broken Row', slug: 'broken-row', action: 'error',
+            changes: {},
+            notes: [], message: 'Price must be a whole number of shillings',
+          },
+        ],
+      });
+    }
+    if (path === '/admin/products/import/commit' && method === 'POST') {
+      if (!state.session) return err(401, 'unauthorized', 'Sign in.');
+      const idemKey = req.headers()['idempotency-key'];
+      if (!idemKey) return err(422, 'validation_error', 'Missing Idempotency-Key header.');
+      if (!body || typeof body.token !== 'string') return err(422, 'validation_error', 'Body must be { token }.');
+      if (opts.importCommitExpired) return err(410, 'import_token_expired', 'This preview has expired — upload the file again.');
+      if (opts.importCommitUsed) return err(409, 'import_token_used', 'These changes were already applied.');
+      if (body.token !== state.importToken) return err(404, 'not_found', 'Unknown import token.');
+      if (state.importUsed && state.importIdemKey !== idemKey) {
+        return err(409, 'import_token_used', 'These changes were already applied.');
+      }
+      state.importUsed = true;
+      state.importIdemKey = idemKey;
+      return json(200, {
+        created: 2,
+        updated: 2,
+        skipped: 1,
+        failed: 1,
+        rows: [
+          { row: 2, name: 'Orin Linen Dress', result: 'updated', productId: 'prod_2001', message: null },
+          { row: 3, name: 'Marren Wool Coat', result: 'created', productId: 'prod_marren', message: 'Created as a draft — add photos and publish' },
+          { row: 4, name: 'Suede Weekender', result: 'created', productId: 'prod_suede', message: 'Created as a draft — add photos and publish' },
+          { row: 5, name: 'Sample Multi Bag', result: 'updated', productId: 'prod_multibag', message: null },
+          { row: 6, name: 'Harlan Leather Belt', result: 'failed', productId: null, message: 'Someone edited this product while you were reviewing — re-export and try again' },
+          { row: 7, name: 'Vintage Scarf', result: 'skipped', productId: null, message: 'Archived — restore it first, then re-import' },
+        ],
+      });
+    }
     if (path.match(/^\/admin\/images\/[^/]+$/) && method === 'DELETE') return route.fulfill({ status: 204, body: '' });
     if (path.match(/^\/admin\/products\/[^/]+\/variants\/[^/]+$/) && method === 'PATCH') return json(200, { id: path.split('/')[5], ...body });
     if (path === '/admin/inventory' && method === 'GET') return json(200, { items: PRODUCTS.flatMap((p) => p.variants.map((v) => ({ productId: p.id, productName: p.name, variantId: v.id, sku: v.sku, options: v.options, stock: v.quantityAvailable || 0, lowStockThreshold: 2, stockState: v.stockState }))), page: 1, pageSize: 25, total: 8, totalPages: 1 });

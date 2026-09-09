@@ -209,6 +209,20 @@ export const api = {
       fd.append('alt', alt || '');
       return request('POST', '/admin/images', { formData: fd });
     },
+
+    /* ---- A17 product bulk import / export ---- */
+    /** Same-origin authenticated GETs returning Content-Disposition: attachment. Used as plain <a href>. */
+    productsExportUrl: () => `${CONFIG.apiBase.replace(/\/$/, '')}/admin/products/export`,
+    importTemplateUrl: () => `${CONFIG.apiBase.replace(/\/$/, '')}/admin/products/import/template`,
+    /** Step 1 — parse + validate + plan; writes nothing. Returns { token, summary, rows }. */
+    importProducts: (file) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return request('POST', '/admin/products/import', { formData: fd });
+    },
+    /** Step 2 — apply a previously-returned plan. Idempotency-Key required (same as POST /orders). */
+    commitImport: (token, idempotencyKey) =>
+      post('/admin/products/import/commit', { token }, { idempotencyKey }),
     deleteImage: (id) => del(`/admin/images/${encodeURIComponent(id)}`),
 
     updateVariant: (productId, variantId, body) =>

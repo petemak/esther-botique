@@ -109,7 +109,7 @@ block, image gallery.
 ### Admin / back-office (auth + admin role, gated routes in the same build)
 30. Admin sign in
 31. Admin dashboard (today's orders, low-stock, pending reviews)
-32. Products list
+32. Products list (+ bulk CSV import / export)
 33. Product create / edit (variants, stock, images, SEO)
 34. Inventory / stock adjustments
 35. Collections & categories
@@ -426,7 +426,69 @@ Target: "House of Esther contact / customer service".
 ### 32. Products list (admin)
 - Table: image, name, category, price, total stock, status (Draft/Published/Archived),
   updated date. Search + filter by category/status. Bulk publish/archive.
-- Dynamic: admin product list.
+- **Catalogue tools row** (sits next to "Add product"):
+  - **Bulk import (CSV)** — opens the import panel below (or `/admin/products/import`).
+  - **Download current products (CSV)** — a plain link to `GET /api/admin/products/export`
+    that triggers a file save (`house-of-esther-products-<date>.csv`).
+  - **Download template (CSV)** — a plain link to
+    `GET /api/admin/products/import/template` (header row + two example rows + a leading
+    `#` guidance line).
+- **Bulk import panel** — three steps, on the same page (revealed by the button) or at
+  `/admin/products/import`. Purpose: let the owner populate / bulk-update the catalogue
+  from a spreadsheet instead of one product at a time. Staff-level (`require-admin`), not
+  owner-only.
+  1. **Upload.** A file picker (accepts `.csv`; max 2 MB; max 1000 data rows) with short
+     plain-language instructions:
+     - Columns: `name`, `price`, `quantity` are required; `category` is required for new
+       products, optional when updating; `description` is optional. Header names are
+       case-insensitive and any order; common synonyms are accepted (product/title,
+       amount, qty/stock, cat, desc).
+     - A row whose `name` matches an existing product **updates** it; a new `name`
+       **creates a draft** — you add photos and publish it from the Products page.
+     - `price` and `quantity` are whole numbers (shillings / units).
+     Links to "Download the template" and "Download current products" repeat here.
+     Submit → `POST /api/admin/products/import` — this **parses and plans only, it writes
+     nothing** — then moves to step 2.
+  2. **Review the plan.** Rendered from the preview response.
+     - **Count strip:** e.g. "3 new · 6 updated · 2 skipped · 1 problem" (from
+       `summary.toCreate / toUpdate / toSkip / errors`).
+     - **Per-row table:** file row number, product name, an **action badge**
+       (New / Update / Skip / Problem), the specific **before → after** changes
+       (`price 5,400 → 5,900`; `stock 3 → 8`; `description "will change"`; `category
+       "stays in women"` or `"women → men"` — only fields that actually change are
+       shown), and any **notes / message**:
+       - "Created as a draft — add photos and publish from the Products page" (New rows).
+       - "Displayed price and description updated — set stock and per-option prices on
+         the product page" (an Update on a product that has multiple size/colour
+         variants — its per-variant price and stock are deliberately not touched, so
+         there is no stock line for it).
+       - "This product is archived — restore it first" / "More than one product matches
+         this name" (Skip rows — not applied, not errors).
+       - "Price must be a whole number of shillings" and similar (Problem rows).
+     - New and Update rows read as *will apply*; Skip and Problem rows are clearly marked
+       *will not apply*.
+  3. **Confirm.** An **"Apply N changes"** button (N = creates + updates) that commits the
+     exact plan: `POST /api/admin/products/import/commit` with the preview `token` and a
+     client-generated `Idempotency-Key`. **Disabled when there is nothing to apply**
+     (0 creates and 0 updates — e.g. re-uploading an unmodified export). Problem rows stay
+     listed with their messages so the owner can fix the spreadsheet and re-upload; the
+     panel does not block on them.
+     - **After commit:** a result summary ("3 created as drafts · 5 updated · 1 skipped ·
+       1 couldn't be applied") with per-row results; created drafts link to their edit
+       pages; a link back to the Products list.
+- **Edge states for the panel:**
+  - **Token expired** (owner left the review open past the ~15-minute TTL) — commit
+    returns `410`; show "This preview has expired — upload the file again" and return to
+    step 1. Nothing was applied.
+  - **Already applied** (`409 import_token_used`, or an idempotency replay) — show "These
+    changes were already applied" and link to the Products list.
+  - **Row failed only at apply time** (someone edited that product between preview and
+    confirm) — shown in the result as "couldn't be applied — re-export and try again";
+    the other rows still committed.
+- Frontend must also add a **"Bulk import"** subsection to the admin guide's "Adding a
+  product" area (the guide page owns that copy — do not edit the guide from here).
+- Dynamic: admin product list; CSV import preview + commit; CSV export; import template
+  download (A17).
 
 ### 33. Product create / edit (admin)
 - **Basics** — name, slug (auto from name, editable), category, subcategory, short
@@ -459,6 +521,8 @@ Target: "House of Esther contact / customer service".
 ### 34. Inventory / stock adjustments (admin)
 - Table of variants with current stock; inline quick-edit; "record adjustment" with
   reason (restock, correction, damage, return-to-stock) creating an auditable entry.
+  Adjustments made by the CSV bulk import (page 32) also appear here, with reason
+  `bulk_import`.
 - Dynamic: inventory adjustments list + create.
 
 ### 35. Collections & categories (admin)
@@ -602,7 +666,7 @@ post-reset change is forced before anything else.
 
 | Category (scope-checklist) | Where it lives |
 |---|---|
-| Catalog / inventory | Pages 2-6 (storefront), 32-35 (admin products, inventory, collections) |
+| Catalog / inventory | Pages 2-6 (storefront), 32-35 (admin products, inventory, collections); bulk CSV import / export on page 32 (A17) |
 | Payments / checkout | Page 8 (checkout: M-Pesa STK + pay on delivery), 9 (confirmation), 37 (admin payment/refund) |
 | Accounts / auth | Pages 23-29 (customer), 30 (admin sign in), 44 (admin self-service / forced password change); guest checkout on page 8 |
 | Admin / back-office | Pages 30-44 plus 38A (gated routes in the one build, server-enforced admin role; page 43 Team is owner-only, page 44 is the admin account / password area) |
@@ -670,6 +734,11 @@ post-reset change is forced before anything else.
 - **Rich text editor** — product story, Journal, legal docs.
 - **Image uploader** — drag-drop, reorder, alt text, primary flag, shows re-encoded
   result + size.
+- **CSV import wizard** (admin, page 32) — file picker with size/row limits + inline
+  rules, a plan-review screen (count strip + per-row diff table with action badges and
+  before→after values), and a confirm/commit control with token-expired and
+  already-applied states. Backed by A17 (preview writes nothing; commit applies the
+  plan, idempotent).
 
 ---
 
@@ -721,6 +790,7 @@ post-reset change is forced before anything else.
 | A14 | Admin discounts CRUD | Discounts admin | read + write |
 | A15 | Admin contact inbox — list, detail, mark handled (read-only; replies by email) | Contact messages admin (page 38A) | read + write |
 | A16 | Admin team (admin users): list, create, edit name/role/status, reset password (owner-only) | Team admin (page 43) | read + write |
+| A17 | Product bulk import (CSV preview + commit), CSV export, import template | Products list admin (page 32) | read + write (import commit is idempotent) |
 
 ---
 

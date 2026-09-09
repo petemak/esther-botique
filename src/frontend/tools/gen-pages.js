@@ -58,6 +58,7 @@ const PAGES = [
   ['admin/signin.html', 'admin/signin', { title: `Admin Sign In — ${BRAND}`, admin: true, bare: true }],
   ['admin/products.html', 'admin/products', { title: `Admin — Products — ${BRAND}`, admin: true }],
   ['admin/product-edit.html', 'admin/productEdit', { title: `Admin — Edit Product — ${BRAND}`, admin: true }],
+  ['admin/product-import.html', 'admin/productImport', { title: `Admin — Bulk Import Products — ${BRAND}`, admin: true }],
   ['admin/inventory.html', 'admin/inventory', { title: `Admin — Inventory — ${BRAND}`, admin: true }],
   ['admin/collections.html', 'admin/collections', { title: `Admin — Collections & Categories — ${BRAND}`, admin: true }],
   ['admin/orders.html', 'admin/orders', { title: `Admin — Orders — ${BRAND}`, admin: true }],
