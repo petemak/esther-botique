@@ -67,15 +67,18 @@ _The build-time agreement between frontend and backend. Every dynamic block in
 {
   "id": "img_9f2",
   "alt": "Tan leather crossbody bag, front view",
-  "thumbUrl": "https://cdn.houseofesther.co.ke/p/9f2-800.webp",
-  "fullUrl": "https://cdn.houseofesther.co.ke/p/9f2-2000.webp",
+  "thumbUrl": "https://pub-example.r2.dev/p/img_9f2-800.jpg",
+  "fullUrl": "https://pub-example.r2.dev/p/img_9f2-2000.jpg",
   "width": 2000,
   "height": 2500,
   "isPrimary": true
 }
 ```
-Image bytes are always served from the CDN, never from `/api`. Admin upload returns
-these URLs after server-side re-encoding to budget.
+Image bytes are always served from object storage / the CDN edge, never from `/api`.
+Admin upload returns these URLs after server-side re-encoding to budget. Admin-uploaded
+and bulk-imported images are served from `MEDIA_BASE_URL` (Cloudflare R2, S3-compatible);
+seed images stay on `CDN_BASE_URL` (the Netlify `/seed/` build) — a deliberate interim
+split, see **A4 — Images**.
 
 ### `ProductCard` (list/grid item)
 ```json
@@ -659,7 +662,7 @@ password), `410 not_found`-style → use `422` code `reset_token_invalid` for ex
 ### `GET /api/account/orders`  (auth)
 Query: `page`, `pageSize`. Response `200`:
 ```json
-{ "items": [ { "orderNumber": "HE-2026-04871", "placedAt": "...", "status": "confirmed", "total": { "amount": 6420, "currency": "KES" }, "itemCount": 1, "thumbnails": ["https://cdn.../9f2-800.webp"] } ],
+{ "items": [ { "orderNumber": "HE-2026-04871", "placedAt": "...", "status": "confirmed", "total": { "amount": 6420, "currency": "KES" }, "itemCount": 1, "thumbnails": ["https://pub-example.r2.dev/p/img_9f2-800.jpg"] } ],
   "page": 1, "pageSize": 24, "total": 3, "totalPages": 1 }
 ```
 
@@ -902,7 +905,7 @@ Response `200`: paginated list of:
 ```json
 { "id": "prod_1042", "name": "Harlan Leather Crossbody", "slug": "harlan-leather-crossbody",
   "category": "accessories", "status": "published", "price": { "amount": 6800, "currency": "KES" },
-  "totalStock": 7, "variantCount": 2, "primaryThumbUrl": "https://cdn.../9f2-800.webp",
+  "totalStock": 7, "variantCount": 2, "primaryThumbUrl": "https://pub-example.r2.dev/p/img_9f2-800.jpg",
   "updatedAt": "2026-09-05T10:00:00Z" }
 ```
 
@@ -973,19 +976,102 @@ indexable. Response `200`.
 Soft-delete → `status: "archived"` (never hard-deletes; orders reference it). Response
 `200`.
 
+### `POST /api/admin/products/bulk-status`
+Applies one status to many products in a single call — the Products list's **Publish
+selected / Archive selected / Back to draft** bulk action (design-spec page 32).
+`require-admin` (staff-level — the same guard as the rest of A3). Headers: `X-CSRF-Token`.
+`Cache-Control: no-store`.
+
+Request:
+```json
+{ "ids": ["prod_1042", "prod_2213", "prod_1050"], "status": "published" }
+```
+- `ids` — 1–200 non-empty product-id strings. Empty, missing, or more than 200 →
+  `422 validation_error`. Duplicate ids are de-duplicated.
+- `status` — `published` | `archived` | `draft`. Any other value →
+  `422 validation_error`.
+
+**Behaviour:**
+- Applies `status` to each listed product independently; one bad id never fails the batch.
+- Re-applying a product's current status is a no-op → `result: "skipped"`
+  (idempotent-friendly — a double-click or a retry changes nothing).
+- `published` makes the product live and indexable exactly as
+  `PATCH /api/admin/products/{id}` does and purges the same CDN paths. **Publishing a
+  product with no images is allowed** — the storefront already renders the placeholder —
+  so nothing is blocked on that basis.
+- `archived` is the same soft-delete as `DELETE /api/admin/products/{id}` (never a
+  hard-delete; orders keep referencing it).
+- Unknown id, or a product that genuinely cannot take the transition → `result: "failed"`
+  with a `message`.
+
+Response `200`:
+```json
+{
+  "updated": 2,
+  "results": [
+    { "id": "prod_1042", "result": "updated", "message": null },
+    { "id": "prod_2213", "result": "skipped", "message": "Already published" },
+    { "id": "prod_1050", "result": "failed", "message": "No product with that id" }
+  ]
+}
+```
+- `result` ∈ `updated` | `skipped` | `failed`.
+- `updated` counts only `result == "updated"` rows (skipped and failed excluded).
+- `results[]` has one entry per requested id (after de-duplication), in request order.
+
+Errors: `422 validation_error` (empty / oversized `ids`, bad `status`),
+`401 unauthorized`, `403 forbidden`.
+
 ## A4 — Images (admin)
 
 ### `POST /api/admin/images`  (`multipart/form-data`)
 Fields: `file` (binary), `alt` (string). Server **re-encodes on ingest** to meet the
-budget: full <= ~300 KB at <= ~2000px, thumb <= ~60 KB at <= ~800px, strips EXIF,
-converts to WebP (+ JPEG fallback), uploads to object storage / CDN. Rejects files over
-~15 MB or non-image types at the boundary.
-Response `201`: `ImageRef` (with final CDN URLs and byte sizes:
+budget: full <= ~300 KB at <= ~2000px, thumb <= ~60 KB at <= ~800px, re-encodes to JPEG
+within the size budget, strips EXIF, uploads to object storage (Cloudflare R2). Rejects
+files over ~15 MB or non-image types at the boundary. (A WebP variant alongside the JPEG
+is a deferred enhancement — not produced today; every URL ends `.jpg`.)
+Response `201`: `ImageRef` (with final `MEDIA_BASE_URL` URLs and byte sizes:
 `"thumbBytes": 41213, "fullBytes": 214880`).
 Errors: `422 validation_error` (bad type / too large / decode failed).
 
 ### `DELETE /api/admin/images/{id}` → `204` (blocked with `409 conflict` if still
 referenced by a product).
+
+### Object storage (admin uploads & bulk-import photos)
+
+Re-encoded image bytes from **admin uploads** (`POST /api/admin/images`) and
+**bulk-import photos** (A17 `/commit`) are written to an **S3-compatible object store
+(Cloudflare R2)**, not to local disk. `encode-within-budget` in `admin/images.clj` keeps
+its re-encoding contract unchanged (full `≤ 300 KB` / `≤ 2000px`, thumb `≤ 60 KB` /
+`≤ 800px`, EXIF stripped) but its sink changes from a local `UPLOAD_DIR` write to a
+bucket `PutObject`, and the URLs it returns change from `{CDN_BASE_URL}/p/{id}-{size}.jpg`
+to `{MEDIA_BASE_URL}/p/{id}-{size}.jpg`.
+
+**New environment configuration** (no secret hardcoded — environment variables only, per
+`engineering-standards.md`):
+
+| Var | Purpose |
+|---|---|
+| `MEDIA_S3_ENDPOINT` | R2 S3 API endpoint, e.g. `https://<account>.r2.cloudflarestorage.com` |
+| `MEDIA_S3_BUCKET` | bucket name for product media |
+| `MEDIA_S3_ACCESS_KEY_ID` | R2 access key id |
+| `MEDIA_S3_SECRET_ACCESS_KEY` | R2 secret access key |
+| `MEDIA_BASE_URL` | public base URL the bytes are served from (the bucket's public URL or its CDN); used to build every `ImageRef` URL for admin-uploaded and bulk-imported images |
+
+**S3 client dependency:** `com.cognitect.aws/aws-api` + `com.cognitect.aws/s3`, **or**
+`software.amazon.awssdk/s3` — backend picks one (check current versions). R2 is
+S3-compatible; point the client at `MEDIA_S3_ENDPOINT` with path-style addressing.
+
+**Deliberate interim split:** seed images stay served from the Netlify `/seed/` build
+under the unchanged `CDN_BASE_URL` — they already meet the budget and work. Only
+admin-uploaded and bulk-imported images go to R2. A later hardening pass can consolidate
+seed images into R2 too.
+
+**Standards note:** this satisfies the outstanding "backend is not an image server / real
+object storage" pre-launch gap for admin uploads. The "static assets served from the CDN
+edge, not proxied through the origin" non-negotiable is met because R2 (via its public
+URL / CDN) serves the bytes directly — the application origin never streams image bytes
+for public traffic.
 
 ## A5 — Variants & inventory (admin)
 
@@ -1410,14 +1496,27 @@ applies a previously-returned plan**. Nothing reaches the database until commit.
   | `description` | `description`, `desc`, `short description` | no |
   | `quantity` | `quantity`, `qty`, `stock` | yes |
   | `category` | `category`, `cat` | required for NEW products, optional for updates |
+  | `photos` | `photos`, `images`, `photo`, `image` | no |
 
 - A line whose first cell begins with `#` is a comment and is skipped (lets the template
   ship guidance). Unknown extra columns are ignored (a `notes` column is fine).
-- `price` and `quantity` are **whole numbers** (Kenyan shillings / units). `"5,400"`,
-  `"5400"`, `" 5400 "` accept; `"5400.00"` accepts only if the fractional part is zero;
-  `"KES 5400"`, `"5400/-"`, negative, empty, or non-numeric → row error. `quantity` must
+- `price` and `quantity`, when given, are **whole numbers** (Kenyan shillings / units).
+  `"5,400"`, `"5400"`, `" 5400 "` accept; `"5400.00"` accepts only if the fractional part
+  is zero; `"KES 5400"`, `"5400/-"`, negative, or non-numeric → row error. `quantity` must
   be `≥ 0`.
+- `price` is **required for a CREATE row** — a blank `price` on a row that would create a
+  new product is a row error. On an **UPDATE row a blank `price` means "keep the current
+  price — no change"** (same as a blank `quantity` / `description` / `category` on an
+  update); `changes.price` is then omitted. A `price` that is *present but* non-numeric /
+  negative / fractional is a row error on create and update alike.
 - `name` is trimmed; a blank `name` → row error.
+- `photos` is an **ordered list of image filenames** for that product, separated by
+  commas or semicolons. The **first filename is the primary image**. Only the basename is
+  compared (`orin/orin-front.jpg` ≡ `orin-front.jpg`) and matching is
+  **case-insensitive** (`Orin-Front.JPG` ≡ `orin-front.jpg`). Whitespace around each name
+  is trimmed; blank entries are ignored. A blank `photos` cell means "no photo change".
+  The image files themselves are selected alongside the CSV in the upload step — the CSV
+  only names them (see the two endpoints below).
 
 ### Matching rule (import)
 
@@ -1440,12 +1539,36 @@ behaviour. It then looks up `products.slug`:
 Renaming a product in the sheet yields a new slug, hence a new `create`; the old product
 is untouched. This is accepted — renames stay a product-edit-page task.
 
+### Photo matching (import)
+
+Independently of product matching, every filename in a row's `photos` cell is matched
+against the set of image files the owner selected in the same upload, **by basename,
+case-insensitively**. For each planned row the server produces a `photos` object:
+
+- names that matched a selected file → `photos.matched` (kept in the CSV's order; the
+  first is the intended primary).
+- names with no corresponding selected file → `photos.missing`. **A missing file does not
+  make the row an `error`** — the row still plans and still commits its text changes; a
+  note (`"Photo <name> was not selected — add it on the product page"`) is attached and
+  the owner can upload it later from the product's Media panel.
+- a `create` row with an empty `photos` cell (or with every name missing) gets the note
+  `"No photos — will be created as a draft with no image"`.
+
+At **preview** the server has only the filenames, not the bytes, so it reports counts and
+matched / missing names and attaches nothing. At **commit** the actual files are
+re-encoded, uploaded and attached (below).
+
 ### Plan semantics
 
 **create** (no existing product):
-- `status = 'draft'` (a CSV carries no photos).
+- `status = 'draft'` — always, even when the row carries photos. Nothing auto-publishes;
+  the owner reviews the Products list and bulk-publishes
+  (`POST /api/admin/products/bulk-status`).
 - `category` is **required** → missing/blank ⇒ `action: "error"`, message `"category is
   required for a new product"`.
+- `price` is **required** → blank ⇒ `action: "error"`, message `"price is required for a
+  new product"`. (On an update a blank `price` is not an error — it just leaves the price
+  unchanged.)
 - One product: `name`, `slug`, `category`, `short_description` from `description` (else
   null), `base_price_amount` = row `price`, defaults for the rest.
 - One default variant: `options {}`, `sku` auto-generated from the slug (upper-cased,
@@ -1454,6 +1577,10 @@ is untouched. This is accepted — renames stay a product-edit-page task.
   `low_stock_threshold` = 2, `enabled` = true.
 - No inventory adjustment is written for a brand-new variant's opening stock (consistent
   with `POST /api/admin/products`).
+- **Photos:** at commit, each `photos.matched` image (in CSV order) is re-encoded to the
+  per-image budget and uploaded to object storage, one `images` row is created per file,
+  `product.image_ids` is set to that ordered list and `product.primary_image_id` to the
+  first. A create row with no matched photos is created with an empty gallery.
 
 **update, product has exactly one variant:**
 - `products.base_price_amount` ← row `price`; that variant's `price_amount` ← row `price`.
@@ -1466,33 +1593,54 @@ is untouched. This is accepted — renames stay a product-edit-page task.
   raw stock overwrite.** Equal quantity ⇒ no adjustment.
 - If `category` is present, non-blank and different, `products.category` is updated (moves
   the product).
+- **Photos (append-only):** if `photos` is non-blank, each `photos.matched` image is
+  re-encoded, uploaded and **appended** to the product's existing gallery in CSV order;
+  existing images are never removed or reordered, and `primary_image_id` is set only if
+  the product had none before. A blank `photos` cell leaves the gallery untouched.
 
 **update, product has more than one variant (multiple size/colour variants):**
 - `products.base_price_amount` ← row `price`; `products.short_description` ← `description`
   (same present-and-non-blank rule); `category` may move the product.
 - **No variant price is touched. No variant stock is touched. No inventory adjustment is
   written.**
+- **Photos** are still appended to the shared product gallery exactly as for a
+  single-variant update — photos are a product-level gallery, never per-variant.
 - Row note: `"Displayed price and description updated — set stock and per-option prices on
   the product page"`.
 
 **skip:** ambiguous-name and archived-name rows (above) — reported, not applied, **not**
 errors.
 
-**error:** a row the server cannot act on — bad `price`/`quantity`, blank `name`, missing
-`category` on a create, in-file duplicate name. Reported with `message`; not applied.
-Per-row errors never fail the whole upload.
+**error:** a row the server cannot act on — a present-but-invalid `price`/`quantity`, a
+blank `price` **on a create**, a blank/invalid `quantity`, blank `name`, missing
+`category` on a create, in-file duplicate name. A blank `price` on an **update** is not
+an error (price unchanged). Reported with `message`; not applied.
+Per-row errors never fail the whole upload. (A `photos` name with no selected file is
+**not** an error — see Photo matching above.)
 
 ### `POST /api/admin/products/import`
 
-`multipart/form-data`, exactly one part **`file`** (the CSV, `≤ 2 MB`, `≤ 1000` data
-rows). Parses + validates + plans the file against the current catalogue. **Writes
-nothing.**
+`multipart/form-data`. Parts:
+
+- **`file`** — required, exactly one: the CSV (`≤ 2 MB`, `≤ 1000` data rows).
+- **`filename`** — optional, repeatable: one part per photo file the owner selected in the
+  upload step, carrying the **filename only, no bytes** (the frontend reads `File.name`
+  from the picker / drag-in and sends each as a plain text part). The server
+  cross-references these against every row's `photos` column to compute per-row `matched`
+  / `missing`. Sending image bytes here is neither required nor expected — the preview
+  stays cheap.
+
+Parses + validates + plans the file against the current catalogue. **Writes nothing, and
+uploads no images.**
 
 Response `200`:
 ```json
 {
   "token": "imp_7f3c9a2b1d",
-  "summary": { "toCreate": 3, "toUpdate": 6, "toSkip": 1, "errors": 1, "totalRows": 11 },
+  "summary": {
+    "toCreate": 3, "toUpdate": 6, "toSkip": 1, "errors": 1, "totalRows": 11,
+    "photos": { "selected": 7, "matched": 6, "missing": 1 }
+  },
   "rows": [
     {
       "row": 2,
@@ -1505,6 +1653,7 @@ Response `200`:
         "description": { "changed": true },
         "category": { "from": "women", "to": "women" }
       },
+      "photos": { "count": 2, "matched": ["orin-front.jpg", "orin-back.jpg"], "missing": [] },
       "notes": [],
       "message": null
     },
@@ -1519,7 +1668,11 @@ Response `200`:
         "description": { "changed": true },
         "category": { "from": null, "to": "women" }
       },
-      "notes": [ "Created as a draft — add photos and publish from the Products page" ],
+      "photos": { "count": 3, "matched": ["marren-front.jpg", "marren-side.jpg"], "missing": ["marren-back.jpg"] },
+      "notes": [
+        "Created as a draft — add photos and publish from the Products page",
+        "Photo marren-back.jpg was not selected — add it on the product page"
+      ],
       "message": null
     },
     {
@@ -1528,6 +1681,7 @@ Response `200`:
       "slug": "sample-multi-bag",
       "action": "update",
       "changes": { "price": { "from": 6800, "to": 7200 }, "description": { "changed": false } },
+      "photos": { "count": 0, "matched": [], "missing": [] },
       "notes": [ "Displayed price and description updated — set stock and per-option prices on the product page" ],
       "message": null
     },
@@ -1537,6 +1691,7 @@ Response `200`:
       "slug": "vintage-scarf",
       "action": "skip",
       "changes": {},
+      "photos": { "count": 0, "matched": [], "missing": [] },
       "notes": [ "This product is archived — restore it first, then re-import" ],
       "message": null
     },
@@ -1546,6 +1701,7 @@ Response `200`:
       "slug": "broken-row",
       "action": "error",
       "changes": {},
+      "photos": { "count": 0, "matched": [], "missing": [] },
       "notes": [],
       "message": "Price must be a whole number of shillings"
     }
@@ -1558,6 +1714,11 @@ Field notes:
   (~15 minutes). **Single-use** at `/commit`.
 - `summary` — `toCreate + toUpdate + toSkip + errors == totalRows`. `totalRows` counts
   data rows only (header and `#` comment lines excluded).
+- `summary.photos` — `{ "selected": <int>, "matched": <int>, "missing": <int> }`: how
+  many files the owner selected, how many distinct selected files were
+  referenced-and-matched by some row, and how many distinct referenced names were not
+  selected. Drives the review screen's photo tally. Absent-equivalent (`0/0/0`) when no
+  `filename` parts were sent.
 - `rows[].row` — 1-based line number **as a spreadsheet shows it** (header = row 1, first
   data row = row 2).
 - `rows[].action` ∈ `create` | `update` | `skip` | `error`.
@@ -1572,8 +1733,13 @@ Field notes:
   - `category`: `{ "from": <string|null>, "to": <string> }` — present only when the
     column is in the file and non-blank; on an unchanged update `from` and `to` are
     equal (lets the UI show "stays in women").
+- `rows[].photos` — **always present**. `{ "count": <int>, "matched": [<filename>...],
+  "missing": [<filename>...] }`. `count` = number of names in the row's `photos` cell
+  (0 when blank); `length(matched) + length(missing) == count`. `matched` is in CSV order
+  (first = intended primary). A non-empty `missing` adds a note but **never** makes the
+  row an `error`.
 - `rows[].notes` — array of human-readable strings (draft-created note, multi-variant
-  note, skip reason). Empty array when none.
+  note, skip reason, missing-photo note). Empty array when none.
 - `rows[].message` — `null` unless `action == "error"`, then a single brand-voiced
   explanation.
 
@@ -1593,7 +1759,25 @@ Headers: `Idempotency-Key: <uuid>` (**required** — same semantics as `POST /ap
 same key + same body within 24h replays the stored result; same key + different body →
 `409 idempotency_key_reused`).
 
-Request:
+**Two accepted request encodings:**
+
+1. **`application/json`** — body `{ "token": "imp_7f3c9a2b1d" }`. Use when the plan has no
+   photos to attach (or the owner chose not to add them now). Behaviour is exactly as
+   before.
+2. **`multipart/form-data`** — for a plan that carries photos. Parts:
+   - **`token`** — required, the preview token as a plain text part.
+   - **`image`** — optional, repeatable: the actual selected photo files (binary). Send
+     every file named by any committing row's `photos` column; files not referenced by a
+     committing row are ignored. Files are matched to rows by **basename,
+     case-insensitively** — the same rule as preview.
+
+**Request caps (multipart):** total request body `≤ 100 MB` **and** `≤ 60` `image` parts.
+Over either → `413 payload_too_large` code `import_batch_too_large`, message `"Import
+fewer photos at a time — split the CSV into smaller batches"` (a boundary that cannot
+stream the size may surface this as `422 validation_error`, same code). **Nothing is
+committed** — not even the text-only rows.
+
+Request (JSON form):
 ```json
 { "token": "imp_7f3c9a2b1d" }
 ```
@@ -1608,6 +1792,19 @@ Behaviour:
   `error` rows from the preview are not carried into the commit response.
 - For each single-variant update whose `quantity` changed, write the `bulk_import`
   inventory adjustment (same transaction as that product's update).
+- **Photos.** For every committing `create` / `update` row, for each filename in its
+  plan's `photos.matched` (CSV order): find the uploaded `image` part by basename, decode
+  it, re-encode both renditions to the per-image budget (full `≤ 300 KB` / `≤ 2000px`,
+  thumb `≤ 60 KB` / `≤ 800px`, EXIF stripped) via the same `encode-within-budget` path as
+  `POST /api/admin/images`, PUT both objects to object storage (R2), and create an
+  `images` row. `create` rows set `image_ids` to the resulting ordered list and
+  `primary_image_id` to the first; `update` rows **append** to the existing gallery and
+  set `primary_image_id` only if it was empty.
+- **Per-image failure is isolated.** A missing part (named in the CSV but not uploaded), a
+  corrupt / undecodable file, an encode failure, or an object-storage error for one image
+  → that image is skipped, its filename recorded, and **the row still commits its text
+  changes and its other images**. A row is **never** marked `failed` solely because a
+  photo failed.
 - A row planned as `create` / `update` that fails at apply time (a concurrent edit, a
   slug/SKU collision that appeared since preview, the product was archived since
   preview) → `result: "failed"` with a `message`; the remaining rows still commit. This
@@ -1621,11 +1818,13 @@ Response `200`:
   "updated": 5,
   "skipped": 1,
   "failed": 1,
+  "imagesAttached": 12,
+  "imagesFailed": 1,
   "rows": [
-    { "row": 2, "name": "Orin Linen Dress", "result": "updated", "productId": "prod_1042", "message": null },
-    { "row": 3, "name": "Marren Wool Coat", "result": "created", "productId": "prod_2213", "message": "Created as a draft — add photos and publish" },
-    { "row": 5, "name": "Vintage Scarf", "result": "skipped", "productId": null, "message": "Archived — restore it first" },
-    { "row": 7, "name": "Rush Belt", "result": "failed", "productId": null, "message": "Someone edited this product while you were reviewing — re-export and try again" }
+    { "row": 2, "name": "Orin Linen Dress", "result": "updated", "productId": "prod_1042", "message": null, "photosAttached": 2, "photosFailed": 0, "photoMessages": [] },
+    { "row": 3, "name": "Marren Wool Coat", "result": "created", "productId": "prod_2213", "message": "Created as a draft — add photos and publish", "photosAttached": 2, "photosFailed": 1, "photoMessages": [ "marren-back.jpg — that file was not uploaded" ] },
+    { "row": 5, "name": "Vintage Scarf", "result": "skipped", "productId": null, "message": "Archived — restore it first", "photosAttached": 0, "photosFailed": 0, "photoMessages": [] },
+    { "row": 7, "name": "Rush Belt", "result": "failed", "productId": null, "message": "Someone edited this product while you were reviewing — re-export and try again", "photosAttached": 0, "photosFailed": 0, "photoMessages": [] }
   ]
 }
 ```
@@ -1636,11 +1835,18 @@ Response `200`:
   `error` rows are not included — the owner fixes the spreadsheet and re-uploads).
 - `rows[].productId` — the affected product id for `created` / `updated`; `null` for
   `skipped` / `failed`.
+- `imagesAttached` / `imagesFailed` — batch totals across every committing row.
+- `rows[].photosAttached` — images successfully re-encoded, uploaded and linked for that
+  row. `rows[].photosFailed` — images that were named and expected but skipped;
+  `rows[].photoMessages` carries one brand-voiced line per failure. All three keys are
+  always present (`0` / `[]` when the row had no photos).
 
 Errors: `404 not_found` (`import_token_unknown`), `410 gone` (`import_token_expired`),
-`409 conflict` (`import_token_used`, `idempotency_key_reused`), `422 validation_error`
-(body is not `{ "token": "imp_..." }`, or missing `Idempotency-Key` header),
-`401 unauthorized`, `403 forbidden`.
+`409 conflict` (`import_token_used`, `idempotency_key_reused`),
+`413 payload_too_large` (`import_batch_too_large` — multipart body over 100 MB or over 60
+`image` parts; nothing committed), `422 validation_error` (neither a valid JSON
+`{ "token": "imp_..." }` body nor a multipart carrying a `token` part; or missing
+`Idempotency-Key` header), `401 unauthorized`, `403 forbidden`.
 
 ### `GET /api/admin/products/export`
 
@@ -1651,10 +1857,10 @@ Response `200`. Headers: `Content-Type: text/csv; charset=utf-8`,
 Body: a header row, then one row per **non-archived** product (`status` in `draft`,
 `published`), ordered by name:
 ```
-name,price,description,quantity,category,status
-Orin Linen Dress,5400,"A compact everyday linen dress.",8,women,published
-Marren Wool Coat,12800,"",4,women,draft
-Sample Multi Bag,6800,"Roomy two-tone tote.",,accessories,published
+name,price,description,quantity,category,photos,status
+Orin Linen Dress,5400,"A compact everyday linen dress.",8,women,,published
+Marren Wool Coat,12800,"",4,women,,draft
+Sample Multi Bag,6800,"Roomy two-tone tote.",,accessories,,published
 ```
 - `price` = `base_price_amount` (integer, no thousands separators, no currency prefix).
 - `quantity` = the single variant's `stock` for a single-variant product; **blank** for a
@@ -1662,8 +1868,13 @@ Sample Multi Bag,6800,"Roomy two-tone tote.",,accessories,published
 - `description` = `short_description` (empty string if null); CSV-quoted when it contains
   a comma, quote or newline.
 - `category` = the product's category slug. `status` ∈ `draft` | `published`.
+- `photos` = **always blank** on export. Product image filenames are not recoverable in a
+  form that round-trips, so the column ships empty; its only job is to make the export
+  header match the import format. A blank `photos` cell on re-import means "no photo
+  change" — it never clears an existing gallery.
 - Round-trips: re-importing an unmodified export is all `update` rows with no changes
-  (multi-variant rows: blank quantity leaves stock alone; price echoes the base price).
+  (multi-variant rows: blank quantity leaves stock alone; price echoes the base price;
+  blank photos leaves the gallery alone).
 
 Errors: `401 unauthorized`, `403 forbidden`.
 
@@ -1675,10 +1886,10 @@ Response `200`. Headers: `Content-Type: text/csv; charset=utf-8`,
 
 Body: one `#` guidance line, the header row, two illustrative example rows:
 ```
-# Fill one row per product. A name that matches an existing product updates it; a new name creates a DRAFT product (add photos, then publish, from the Products page). category is required for new products, optional when updating. price and quantity are whole numbers. Delete these example rows before importing.
-name,price,description,quantity,category
-Orin Linen Dress,5400,A compact everyday linen dress in vegetable-washed linen.,8,women
-Harlan Leather Belt,2200,,15,accessories
+# Fill one row per product. A name that matches an existing product updates it; a new name creates a DRAFT product (add photos, then publish, from the Products page). category is required for new products, optional when updating. price and quantity are whole numbers. In "photos" put the image file names for that product separated by commas or semicolons (first name = primary), then select those same files alongside this CSV when you upload; leave "photos" blank to change nothing. Delete these example rows before importing.
+name,price,description,quantity,category,photos
+Orin Linen Dress,5400,A compact everyday linen dress in vegetable-washed linen.,8,women,orin-front.jpg;orin-back.jpg
+Harlan Leather Belt,2200,,15,accessories,
 ```
 If the owner fills in rows under the header and removes the examples, the file imports
 cleanly. The `#` line is ignored by the importer.
@@ -1708,7 +1919,7 @@ Errors: `401 unauthorized`, `403 forbidden`.
   as other in-memory state); a multi-instance deployment must move it to Postgres or a
   shared cache. The stored plan must hold enough to apply without re-reading the file:
   per-row action, the target `productId` (updates) or full create payload, the computed
-  deltas, and token-consumption state.
+  deltas, each row's ordered `photos.matched` filename list, and token-consumption state.
 - **Slug generation** must match the product create form's `slugify` exactly (see
   Matching rule above) so a CSV-created product and a form-created one land on the same
   `products.slug`. `POST /api/admin/products` currently takes `slug` from the client; the
@@ -1716,7 +1927,16 @@ Errors: `401 unauthorized`, `403 forbidden`.
 - **SKU generation** for the default variant must be deterministic from the slug and
   unique (`product_variants.sku` is `unique`) — append `-2`, `-3`, … on collision.
 - **Multipart** parsing already exists for `POST /api/admin/images`; reuse it. Enforce
-  the 2 MB / 1000-row limits at the boundary before planning.
+  the 2 MB / 1000-row limits (import) and the 100 MB / 60-image limits (commit) at the
+  boundary before planning / applying.
+- **Photo ingest on commit** reuses the `POST /api/admin/images` path end to end — the
+  same `encode-within-budget` re-encoder and the same object-storage (R2) `PutObject`
+  (see **A4 — Images**). Bulk-imported images therefore land in R2, not on local disk,
+  and are served from `MEDIA_BASE_URL`.
+- **S3 client dependency** (shared with A4): `com.cognitect.aws/aws-api` +
+  `com.cognitect.aws/s3`, **or** `software.amazon.awssdk/s3` — backend picks one after
+  checking current versions. R2 is S3-compatible, so either works against
+  `MEDIA_S3_ENDPOINT` (path-style addressing).
 - Rate-limit `POST /api/admin/products/import` per admin identity (consistent with the
   contract's rate-limiting stance; currently unenforced like the others).
 
@@ -1726,7 +1946,7 @@ Errors: `401 unauthorized`, `403 forbidden`.
 
 | Capability | Key endpoints |
 |---|---|
-| Catalog / inventory | `GET /products*`, `GET /categories`, `GET /collections/*`, `/api/admin/products*`, `GET /api/admin/products/{id}/preview` (draft / any-status PDP preview), `/api/admin/inventory*`, `/api/admin/collections*`, `POST /api/admin/images` |
+| Catalog / inventory | `GET /products*`, `GET /categories`, `GET /collections/*`, `/api/admin/products*` (incl. `POST /api/admin/products/bulk-status` — bulk publish / archive / draft), `GET /api/admin/products/{id}/preview` (draft / any-status PDP preview), `/api/admin/inventory*`, `/api/admin/collections*`, `POST /api/admin/images` + A17 import photos (both re-encoded → object storage / Cloudflare R2) |
 | Payments / checkout | `POST /checkout/quote`, `POST /orders`, `POST /payments/mpesa/stk-push`, `GET /payments/{id}`, `POST /payments/mpesa/callback`, `PATCH /api/admin/orders/{n}/payment`, `POST /api/admin/orders/{n}/refund` |
 | Accounts / auth | `/api/auth/*`, `/api/account/*`, `/api/admin/auth/*` (incl. `POST /api/admin/auth/change-password` — any admin), `/api/admin/users*` (A16 — owner-only admin team management) |
 | Admin / back-office | all `/api/admin/*` — incl. `GET /api/admin/products/{id}/preview` (draft-product preview), `GET`/`PATCH /api/admin/contacts` (read-only contact inbox), and `/api/admin/users*` + `POST /api/admin/auth/change-password` (A16 — owner-only team management: add / edit role / deactivate admins; forced first-login password change) |

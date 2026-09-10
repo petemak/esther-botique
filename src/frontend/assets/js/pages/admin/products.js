@@ -1,9 +1,11 @@
 import { api } from '../../api.js';
-import { el, clear, imageEl, $ } from '../../dom.js';
+import { el, clear, imageEl, $, $$ } from '../../dom.js';
 import { errorState } from '../../components.js';
 import { getParam, formatDate } from '../../util.js';
-import { adminShell, adminTable, pager, money } from './_shell.js';
+import { adminShell, pager, money } from './_shell.js';
 import { toast } from '../../toast.js';
+
+const BULK_CAP = 200;
 
 let content;
 let query = {
@@ -13,6 +15,11 @@ let query = {
   stock: getParam('stock') || '',
   page: parseInt(getParam('page') || '1', 10),
 };
+
+/** Product ids ticked for a bulk status action. Survives pagination within the page session. */
+const selectedIds = new Set();
+/** Ids shown on the page currently rendered — drives the "select all (this page)" checkbox. */
+let pageIds = [];
 
 start();
 
@@ -48,6 +55,7 @@ function renderFilters() {
       el('a', { class: 'btn', href: '/admin/product-edit.html', text: 'Add product' }),
     ]),
     catalogueTools(),
+    el('div', { id: 'p-bulkbar', class: 'bulk-bar', role: 'region', 'aria-label': 'Bulk actions', hidden: true }),
     el('div', { id: 'p-results' }, [el('div', { class: 'spinner' })])
   );
 }
@@ -60,7 +68,7 @@ function catalogueTools() {
       el('a', { class: 'btn btn--small btn--ghost', href: api.admin.productsExportUrl(), download: '', text: 'Download current products (CSV)' }),
       el('a', { class: 'btn btn--small btn--ghost', href: api.admin.importTemplateUrl(), download: '', text: 'Download template' }),
     ]),
-    el('p', { class: 'hint', text: 'Export the catalogue or the template, edit it in a spreadsheet, then upload it to add or bulk-update products.' }),
+    el('p', { class: 'hint', text: 'Export the catalogue or the template, edit it in a spreadsheet, then upload it (with photos) to add or bulk-update products. Tick rows below to publish or archive several at once.' }),
   ]);
 }
 
@@ -77,8 +85,38 @@ async function load() {
       pageSize: 20,
     });
     clear(results);
-    const rows = (data.items || []).map((p) =>
-      el('tr', {}, [
+    const items = data.items || [];
+    pageIds = items.map((p) => p.id);
+
+    const selectAll = el('input', {
+      type: 'checkbox',
+      class: 'p-check-all',
+      'aria-label': 'Select all products on this page',
+    });
+    selectAll.addEventListener('change', () => {
+      pageIds.forEach((id) => {
+        if (selectAll.checked) selectedIds.add(id);
+        else selectedIds.delete(id);
+      });
+      $$('.p-row-check').forEach((cb) => { cb.checked = selectAll.checked; });
+      syncSelectionUi();
+    });
+
+    const rows = items.map((p) => {
+      const cb = el('input', {
+        type: 'checkbox',
+        class: 'p-row-check',
+        value: p.id,
+        checked: selectedIds.has(p.id),
+        'aria-label': `Select ${p.name}`,
+      });
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedIds.add(p.id);
+        else selectedIds.delete(p.id);
+        syncSelectionUi();
+      });
+      return el('tr', {}, [
+        el('td', {}, [cb]),
         el('td', {}, [imageEl({ thumbUrl: p.primaryThumbUrl, alt: '' }, { altFallback: p.name })]),
         el('td', {}, [el('a', { href: `/admin/product-edit.html?id=${encodeURIComponent(p.id)}`, text: p.name })]),
         el('td', { text: p.category }),
@@ -92,16 +130,114 @@ async function load() {
             ? el('button', { class: 'btn btn--small btn--ghost', text: 'Archive', on: { click: () => archive(p.id) } })
             : null,
         ]),
-      ])
-    );
+      ]);
+    });
+
     results.append(
       el('p', { class: 'hint', text: `${data.total || 0} products` }),
-      adminTable(['', 'Name', 'Category', 'Price', 'Stock', 'Status', 'Updated', ''], rows),
+      el('div', { class: 'admin-table-wrap' }, [
+        el('table', { class: 'admin-table admin-table--select' }, [
+          el('thead', {}, [
+            el('tr', {}, [
+              el('th', { scope: 'col' }, [selectAll]),
+              ...['Image', 'Name', 'Category', 'Price', 'Stock', 'Status', 'Updated', ''].map((c) =>
+                el('th', { scope: 'col', text: c })
+              ),
+            ]),
+          ]),
+          el('tbody', {}, rows.length ? rows : [el('tr', {}, [el('td', { colspan: 9, text: 'Nothing to show.' })])]),
+        ]),
+      ]),
       pager(data.page || 1, data.totalPages || 1, (p) => { query.page = p; load(); })
     );
+    syncSelectionUi();
   } catch (err) {
     clear(results).append(errorState(err, load));
   }
+}
+
+/* ---------- bulk status actions ---------- */
+
+function syncSelectionUi() {
+  const boxes = $$('.p-row-check');
+  const checked = boxes.filter((b) => b.checked).length;
+  const selectAll = $('.p-check-all');
+  if (selectAll) {
+    selectAll.checked = boxes.length > 0 && checked === boxes.length;
+    selectAll.indeterminate = checked > 0 && checked < boxes.length;
+  }
+  renderBulkBar();
+}
+
+function renderBulkBar() {
+  const bar = $('#p-bulkbar');
+  if (!bar) return;
+  const n = selectedIds.size;
+  if (n === 0) {
+    bar.hidden = true;
+    clear(bar);
+    return;
+  }
+  bar.hidden = false;
+  const overCap = n > BULK_CAP;
+  clear(bar).append(
+    el('span', { class: 'bulk-bar__count', text: `${n} selected` }),
+    el('button', { class: 'btn btn--small', type: 'button', disabled: overCap, text: 'Publish selected', on: { click: () => runBulk('published') } }),
+    el('button', { class: 'btn btn--small btn--danger', type: 'button', disabled: overCap, text: 'Archive selected', on: { click: confirmArchive } }),
+    el('button', { class: 'btn btn--small btn--secondary', type: 'button', disabled: overCap, text: 'Move to draft', on: { click: () => runBulk('draft') } }),
+    el('button', { class: 'btn btn--small btn--ghost', type: 'button', text: 'Clear selection', on: { click: clearSelection } }),
+    overCap
+      ? el('p', { class: 'bulk-bar__hint hint', text: `You can change up to ${BULK_CAP} products at once — narrow the filter first.` })
+      : null
+  );
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  $$('.p-row-check').forEach((cb) => { cb.checked = false; });
+  syncSelectionUi();
+}
+
+function confirmArchive() {
+  const bar = $('#p-bulkbar');
+  const n = selectedIds.size;
+  clear(bar).append(
+    el('p', { class: 'bulk-bar__confirm', text: `Archive ${n} product${n === 1 ? '' : 's'}? They'll be hidden from the shop but kept in past orders.` }),
+    el('button', { class: 'btn btn--small btn--danger', type: 'button', text: 'Archive', on: { click: () => runBulk('archived') } }),
+    el('button', { class: 'btn btn--small btn--ghost', type: 'button', text: 'Cancel', on: { click: renderBulkBar } })
+  );
+}
+
+async function runBulk(status) {
+  const ids = [...selectedIds];
+  if (!ids.length) return;
+  if (ids.length > BULK_CAP) {
+    toast(`You can change up to ${BULK_CAP} products at once — narrow the filter first.`, 'error');
+    return;
+  }
+  const bar = $('#p-bulkbar');
+  clear(bar).append(el('span', { class: 'bulk-bar__count', text: 'Working…' }));
+  try {
+    const res = await api.admin.bulkProductStatus(ids, status);
+    toast(bulkResultText(res, status), 'success');
+    selectedIds.clear();
+    await load();
+  } catch (err) {
+    toast((err && err.message) || 'Could not update those products.', 'error');
+    renderBulkBar();
+  }
+}
+
+function bulkResultText(res, status) {
+  const verb = status === 'published' ? 'published' : status === 'archived' ? 'archived' : 'moved to draft';
+  const results = res.results || [];
+  const updated = res.updated != null ? res.updated : results.filter((r) => r.result === 'updated').length;
+  const skipped = results.filter((r) => r.result === 'skipped').length;
+  const failed = results.filter((r) => r.result === 'failed').length;
+  const parts = [`${updated} ${verb}`];
+  if (skipped) parts.push(`${skipped} ${status === 'draft' ? 'already a draft' : `already ${verb}`}`);
+  if (failed) parts.push(`${failed} not found`);
+  return parts.join(' · ');
 }
 
 async function archive(id) {

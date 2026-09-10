@@ -10,6 +10,7 @@
    testable without HTTP. All four endpoints sit behind `require-admin`."
   (:require [clojure.data.csv :as csv]
             [clojure.string :as str]
+            [house-of-esther.admin.images :as images]
             [house-of-esther.admin.inventory :as inv]
             [house-of-esther.db :as db]
             [house-of-esther.http.error :as err]
@@ -54,7 +55,8 @@
    :price       #{"price" "amount" "price (kes)"}
    :description #{"description" "desc" "short description"}
    :quantity    #{"quantity" "qty" "stock"}
-   :category    #{"category" "cat"}})
+   :category    #{"category" "cat"}
+   :photos      #{"photos" "images" "photo" "image"}})
 
 (defn- header-index
   "Header cells -> {canonical-key column-index}. Names are trimmed and
@@ -103,6 +105,44 @@
       (:slug (db/q1 conn ["select slug from categories
                            where lower(slug) = ? or lower(label) = ? limit 1" t t])))))
 
+;; --- photo matching -------------------------------------------------
+
+(defn basename-lc
+  "Lower-cased basename: strips any `Photos/` or `Photos\\` prefix.
+   `Photos/Orin-Front.JPG` -> `orin-front.jpg`."
+  [s]
+  (-> (or s "") str/trim
+      (str/replace #"^.*[/\\]" "")
+      str/lower-case))
+
+(defn parse-photo-cell
+  "Ordered, de-blanked list of photo names from a `photos` cell (comma OR
+   semicolon separated). Order is preserved; first = intended primary."
+  [s]
+  (when s
+    (->> (str/split (str s) #"[,;]")
+         (map str/trim)
+         (remove str/blank?)
+         vec)))
+
+(defn- photo-obj
+  "Per-row `photos` object. `selected` is the set of selected basenames (lower).
+   When no files were selected at all (`selected` empty) names still split into
+   matched/missing so `matched + missing == count` holds; `summary.photos`
+   separately reports 0/0/0 in that case."
+  [names selected]
+  (let [{matched true missing false}
+        (group-by #(contains? selected (basename-lc %)) (or names []))]
+    {:count   (count (or names []))
+     :matched (vec matched)
+     :missing (vec missing)}))
+
+(def ^:private note-no-photos
+  "No photos — will be created as a draft with no image")
+
+(defn- missing-photo-note [nm]
+  (str "Photo " nm " was not selected — add it on the product page"))
+
 ;; --- per-row planning -------------------------------------------------
 
 (def ^:private note-created
@@ -133,7 +173,8 @@
         cur-cat  (:category p)
         cat-given? (and cat-present? (not (str/blank? cat-raw)))
         cat-slug (when cat-given? (resolve-category conn cat-raw))
-        price-changed? (not= price cur-base)
+        ;; blank price on an update = keep current price (price is nil here)
+        price-changed? (and (some? price) (not= price cur-base))
         desc-changed?  (boolean (and desc-present? (not (str/blank? desc-raw)) (not= desc-raw cur-desc)))
         cat-changed?   (boolean (and cat-given? (some? cat-slug) (not= cat-slug cur-cat)))
         desc-change (when desc-present? {:changed desc-changed?})
@@ -163,7 +204,7 @@
                              :category (when cat-changed? cat-slug)
                              :from-stock (when qty-changed? cur-stock)
                              :to-stock (when qty-changed? qty)})
-              (assoc base :action "skip" :changes {} :notes [note-no-change])))))
+              (assoc base :action "skip" :changes {} :notes [note-no-change] :match-id (:id p))))))
 
       :else
       (let [qty (parse-whole qty-raw)]
@@ -180,13 +221,18 @@
                              :price (when price-changed? price)
                              :set-desc (when desc-changed? desc-raw)
                              :category (when cat-changed? cat-slug)})
-              (assoc base :action "skip" :changes {} :notes [note-no-change]))))))))
+              (assoc base :action "skip" :changes {} :notes [note-no-change] :match-id (:id p)))))))))
 
 (defn- plan-create
   [conn base slug nm {:keys [price qty-raw desc-present? desc-raw cat-present? cat-raw]}]
   (let [cat-slug (resolve-category conn cat-raw)
         qty (parse-whole qty-raw)]
     (cond
+      ;; present-but-unparseable price was already caught in plan-row; a nil
+      ;; here means the cell was blank, and price is required for a new product.
+      (nil? price)
+      (err-row base "price is required for a new product.")
+
       (or (not cat-present?) (str/blank? (or cat-raw "")))
       (err-row base "category is required for a new product.")
 
@@ -210,52 +256,95 @@
                        :price price
                        :quantity qty})))))
 
+(def ^:private note-photos-only
+  "Photos will be added to this product — no other changes")
+
+(defn- attach-photos
+  "Fold the row's `photos` object into a planned row: set `:photos` for the API
+   response, add missing-photo / no-photo notes (never on an `error` row), and
+   stash the ordered `matched` filename list at `:photos-matched` so commit can
+   attach without re-reading the CSV.
+
+   A matched row whose only change is new photos would otherwise plan as a
+   no-change `skip`; it is promoted to an `update` (`:photos-only` apply) so the
+   gallery actually gets the images. Rows with genuinely nothing to do stay
+   `skip` (post-QA fix intact)."
+  [pr pobj]
+  (let [pr (assoc pr :photos pobj)]
+    (if (= "error" (:action pr))
+      pr
+      (let [has-matched?  (seq (:matched pobj))
+            no-change?    (and (= "skip" (:action pr)) (some #{note-no-change} (:notes pr)))
+            pr            (if (and no-change? has-matched?)
+                            (-> pr
+                                (assoc :action "update"
+                                       :notes [note-photos-only]
+                                       :apply {:kind :photos-only :product-id (:match-id pr)}))
+                            pr)
+            missing-notes (map missing-photo-note (:missing pobj))
+            no-photos?    (and (= "create" (:action pr)) (empty? (:matched pobj)))
+            extra         (cond-> (vec missing-notes)
+                            no-photos? (conj note-no-photos))]
+        (cond-> (update pr :notes #(into (vec %) extra))
+          has-matched? (assoc :photos-matched (vec (:matched pobj))))))))
+
 (defn- plan-row
   "Plan one data row. Returns [plan-row-map new-seen] where `seen` maps
-   slug -> first row number that used it (for in-file duplicate detection)."
-  [conn row-num row hidx seen]
+   slug -> first row number that used it (for in-file duplicate detection).
+   `selected` is the set of selected photo basenames (lower-cased)."
+  [conn row-num row hidx seen selected]
   (let [nm            (cell row (:name hidx))
         desc-present? (contains? hidx :description)
         cat-present?  (contains? hidx :category)
-        fields        {:price         (parse-whole (cell row (:price hidx)))
+        photo-names   (parse-photo-cell (when (contains? hidx :photos) (cell row (:photos hidx))))
+        pobj          (photo-obj photo-names selected)
+        price-raw     (cell row (:price hidx))
+        price-blank?  (str/blank? (or price-raw ""))
+        fields        {:price         (parse-whole price-raw)
+                       :price-blank?  price-blank?
                        :qty-raw       (cell row (:quantity hidx))
                        :desc-present? desc-present?
                        :desc-raw      (when desc-present? (cell row (:description hidx)))
                        :cat-present?  cat-present?
                        :cat-raw       (when cat-present? (cell row (:category hidx)))}
-        base          {:row row-num :name (or nm "") :slug "" :changes {} :notes [] :message nil}]
-    (cond
-      (str/blank? (or nm ""))
-      [(err-row base "Give this row a product name so we can match or create it.") seen]
-
-      :else
-      (let [slug (slugify nm)
-            base (assoc base :slug slug)]
+        base          {:row row-num :name (or nm "") :slug "" :changes {} :notes [] :message nil}
+        [pr seen']
         (cond
-          (contains? seen slug)
-          [(err-row base (str "Duplicate of row " (get seen slug)
-                              " — only the first row for a product name is used")) seen]
+          (str/blank? (or nm ""))
+          [(err-row base "Give this row a product name so we can match or create it.") seen]
 
           :else
-          (let [seen' (assoc seen slug row-num)]
-            (if (nil? (:price fields))
-              [(err-row base "Price must be a whole number of shillings.") seen']
-              (let [matches (db/q conn ["select id, status, category,
-                                                base_price_amount as \"basePriceAmount\",
-                                                short_description as \"shortDescription\"
-                                         from products where slug = ?" slug])]
-                (cond
-                  (> (count matches) 1)
-                  [(assoc base :action "skip" :notes [note-ambiguous]) seen']
+          (let [slug (slugify nm)
+                base (assoc base :slug slug)]
+            (cond
+              (contains? seen slug)
+              [(err-row base (str "Duplicate of row " (get seen slug)
+                                  " — only the first row for a product name is used")) seen]
 
-                  (and (= 1 (count matches)) (= "archived" (:status (first matches))))
-                  [(assoc base :action "skip" :notes [note-archived]) seen']
+              :else
+              (let [seen' (assoc seen slug row-num)]
+                ;; price present-but-unparseable is always a row error; a BLANK
+                ;; price is deferred to plan-create (error — required) /
+                ;; plan-update (no change — like blank qty/desc/category).
+                (if (and (not (:price-blank? fields)) (nil? (:price fields)))
+                  [(err-row base "Price must be a whole number of shillings.") seen']
+                  (let [matches (db/q conn ["select id, status, category,
+                                                    base_price_amount as \"basePriceAmount\",
+                                                    short_description as \"shortDescription\"
+                                             from products where slug = ?" slug])]
+                    (cond
+                      (> (count matches) 1)
+                      [(assoc base :action "skip" :notes [note-ambiguous]) seen']
 
-                  (= 1 (count matches))
-                  [(plan-update conn base (first matches) fields) seen']
+                      (and (= 1 (count matches)) (= "archived" (:status (first matches))))
+                      [(assoc base :action "skip" :notes [note-archived]) seen']
 
-                  :else
-                  [(plan-create conn base slug nm fields) seen'])))))))))
+                      (= 1 (count matches))
+                      [(plan-update conn base (first matches) fields) seen']
+
+                      :else
+                      [(plan-create conn base slug nm fields) seen'])))))))]
+    [(attach-photos pr pobj) seen']))
 
 ;; --- structural parse + full plan ------------------------------------
 
@@ -286,8 +375,11 @@
    Throws 422 validation_error for a structurally unusable file. Otherwise
    returns {:rows [plan-row ...]}. Row numbers are spreadsheet-style with the
    header at 1 (# comment lines and wholly-blank lines are dropped and do not
-   consume a number)."
-  [conn content]
+   consume a number). `selected-filenames` is the list of photo filenames the
+   caller selected in the upload step (may be empty)."
+  ([conn content] (build-plan conn content nil))
+  ([conn content selected-filenames]
+  (let [selected (into #{} (map basename-lc) (or selected-filenames []))]
   (when (str/blank? content)
     (throw (err/validation "That file has no header row.")))
   (when (not-a-csv? content)
@@ -310,19 +402,33 @@
             (throw (err/validation "That file has a header row but no product rows.")))
           (when (> (count data) 1000)
             (throw (err/validation "That file has more than 1000 product rows — split it into batches.")))
-          {:rows (loop [[d & more] data, n 2, seen {}, acc []]
+          {:selected selected
+           :rows (loop [[d & more] data, n 2, seen {}, acc []]
                    (if (nil? d)
                      acc
-                     (let [[pr seen'] (plan-row conn n d hidx seen)]
-                       (recur more (inc n) seen' (conj acc pr)))))})))))
+                     (let [[pr seen'] (plan-row conn n d hidx seen selected)]
+                       (recur more (inc n) seen' (conj acc pr)))))})))))))
 
-(defn- summary [plan-rows]
+(defn- photos-summary
+  "`summary.photos` — {selected, matched, missing}. `selected` is the set of
+   selected photo basenames. 0/0/0 when nothing was selected (absent-equivalent)."
+  [plan-rows selected]
+  (if (empty? selected)
+    {:selected 0 :matched 0 :missing 0}
+    (let [matched (into #{} (comp (mapcat #(get-in % [:photos :matched])) (map basename-lc)) plan-rows)
+          missing (into #{} (comp (mapcat #(get-in % [:photos :missing])) (map basename-lc)) plan-rows)]
+      {:selected (count selected)
+       :matched  (count matched)
+       :missing  (count missing)})))
+
+(defn- summary [plan-rows selected]
   (let [by (group-by :action plan-rows)]
     {:toCreate  (count (by "create"))
      :toUpdate  (count (by "update"))
      :toSkip    (count (by "skip"))
      :errors    (count (by "error"))
-     :totalRows (count plan-rows)}))
+     :totalRows (count plan-rows)
+     :photos    (photos-summary plan-rows selected)}))
 
 (defn- public-row [r]
   {:row     (:row r)
@@ -330,6 +436,7 @@
    :slug    (:slug r)
    :action  (:action r)
    :changes (:changes r)
+   :photos  (or (:photos r) {:count 0 :matched [] :missing []})
    :notes   (:notes r)
    :message (:message r)})
 
@@ -418,6 +525,12 @@
             (db/exec! conn ["update products set updated_at = now() where id = ?" (:product-id a)])))
         (:product-id a)))))
 
+(defn- apply-photos-only! [_admin-id r]
+  ;; no text change — just confirm the product is still there for the photo append
+  (db/with-tx [conn]
+    (guard-product! conn (:product-id (:apply r)))
+    (:product-id (:apply r))))
+
 (defn- apply-update-multi! [_admin-id r]
   (db/with-tx [conn]
     (let [a (:apply r)]
@@ -436,50 +549,111 @@
           (db/exec! conn ["update products set updated_at = now() where id = ?" (:product-id a)])))
       (:product-id a))))
 
+;; --- photo attach (commit) -----------------------------------------
+
+(defn- photo-fail-msg [nm e]
+  (str nm " — "
+       (if (= :decode (:reason (ex-data e)))
+         "that file could not be read as an image"
+         "that photo could not be processed")))
+
+(defn- ingest-matched!
+  "Re-encode + store one matched photo via the SAME path as POST /api/admin/images
+   (`house-of-esther.admin.images/ingest-file!` -> R2 / local fallback). Returns
+   the new image id. Throws on a missing upload, decode, encode, or storage
+   failure — the caller isolates per image."
+  [images-by-basename nm]
+  (let [part (get images-by-basename (basename-lc nm))]
+    (when-not (and part (:tempfile part))
+      (throw (ex-info (str nm " — that file was not uploaded") {:reason :missing})))
+    (:id (images/ingest-file! (:tempfile part) ""))))
+
+(defn- attach-row-photos!
+  "For a committed create/update row, re-encode + upload each `:photos-matched`
+   file (CSV order) and link it. Per-image failure is isolated: a bad file is
+   skipped, its message recorded, the row keeps its text changes + other images.
+   `create` sets the gallery to the uploaded list; `update` APPENDS and only sets
+   `primary_image_id` when the product had none. Returns
+   {:attached n :failed n :messages [..]}."
+  [row product-id images-by-basename]
+  (let [names (:photos-matched row)]
+    (if (empty? names)
+      {:attached 0 :failed 0 :messages []}
+      (let [outcomes
+            (mapv (fn [nm]
+                    (try {:image-id (ingest-matched! images-by-basename nm)}
+                         (catch clojure.lang.ExceptionInfo e
+                           {:msg (if (= :missing (:reason (ex-data e)))
+                                   (ex-message e)
+                                   (photo-fail-msg nm e))})
+                         (catch Exception e {:msg (photo-fail-msg nm e)})))
+                  names)
+            ok-ids (vec (keep :image-id outcomes))
+            msgs   (vec (keep :msg outcomes))]
+        (when (seq ok-ids)
+          (db/with-tx [conn]
+            (let [p       (db/q1 conn ["select image_ids as \"imageIds\", primary_image_id as \"primaryImageId\"
+                                       from products where id = ? for update" product-id])
+                  gallery (into (vec (:imageIds p)) ok-ids)
+                  prim    (or (:primaryImageId p) (first ok-ids))]
+              (db/exec! conn ["update products set image_ids = ?, primary_image_id = ?, updated_at = now()
+                               where id = ?" gallery prim product-id]))))
+        {:attached (count ok-ids) :failed (count msgs) :messages msgs}))))
+
 (defn run-commit!
   "Apply `plan-rows` (create / update / skip only — preview `error` rows are not
-   carried in). Each create/update row runs in its own transaction; a row that
-   fails is reported `failed` and the rest still commit. Returns the
-   {created updated skipped failed rows} response body."
-  [plan-rows admin-id]
-  (reduce
-   (fn [acc r]
-     (case (:action r)
-       "skip"
-       (-> acc
-           (update :skipped inc)
-           (update :rows conj {:row (:row r) :name (:name r) :result "skipped"
-                               :productId nil :message (first (:notes r))}))
+   carried in). Each create/update row's text changes run in their own
+   transaction; a row that fails at the text level is reported `failed` and the
+   rest still commit. Matched photos in `images-by-basename`
+   ({lower-basename -> multipart part}) are then re-encoded, uploaded to object
+   storage and linked, isolating per-image failures. Returns the
+   {created updated skipped failed imagesAttached imagesFailed rows} body."
+  ([plan-rows admin-id] (run-commit! plan-rows admin-id {}))
+  ([plan-rows admin-id images-by-basename]
+   (let [no-photos {:photosAttached 0 :photosFailed 0 :photoMessages []}]
+     (reduce
+      (fn [acc r]
+        (case (:action r)
+          "skip"
+          (-> acc
+              (update :skipped inc)
+              (update :rows conj (merge {:row (:row r) :name (:name r) :result "skipped"
+                                         :productId nil :message (first (:notes r))}
+                                        no-photos)))
 
-       ("create" "update")
-       (let [[ok? res]
-             (try
-               [true (case (get-in r [:apply :kind])
-                       :create        (apply-create! admin-id r)
-                       :update-single (apply-update-single! admin-id r)
-                       :update-multi  (apply-update-multi! admin-id r))]
-               (catch clojure.lang.ExceptionInfo e [false (friendly-failure e)])
-               (catch Exception _ [false "This row could not be applied — re-export and try again."]))]
-         (cond
-           (not ok?)
-           (-> acc
-               (update :failed inc)
-               (update :rows conj {:row (:row r) :name (:name r) :result "failed"
-                                   :productId nil :message res}))
-           (= "create" (:action r))
-           (-> acc
-               (update :created inc)
-               (update :rows conj {:row (:row r) :name (:name r) :result "created"
-                                   :productId res :message "Created as a draft — add photos and publish"}))
-           :else
-           (-> acc
-               (update :updated inc)
-               (update :rows conj {:row (:row r) :name (:name r) :result "updated"
-                                   :productId res :message nil}))))
+          ("create" "update")
+          (let [[ok? res]
+                (try
+                  [true (case (get-in r [:apply :kind])
+                          :create        (apply-create! admin-id r)
+                          :update-single (apply-update-single! admin-id r)
+                          :update-multi  (apply-update-multi! admin-id r)
+                          :photos-only   (apply-photos-only! admin-id r))]
+                  (catch clojure.lang.ExceptionInfo e [false (friendly-failure e)])
+                  (catch Exception _ [false "This row could not be applied — re-export and try again."]))]
+            (if-not ok?
+              (-> acc
+                  (update :failed inc)
+                  (update :rows conj (merge {:row (:row r) :name (:name r) :result "failed"
+                                             :productId nil :message res}
+                                            no-photos)))
+              (let [ph (attach-row-photos! r res images-by-basename)]
+                (-> acc
+                    (update (if (= "create" (:action r)) :created :updated) inc)
+                    (update :imagesAttached + (:attached ph))
+                    (update :imagesFailed + (:failed ph))
+                    (update :rows conj {:row (:row r) :name (:name r)
+                                        :result (if (= "create" (:action r)) "created" "updated")
+                                        :productId res
+                                        :message (when (= "create" (:action r))
+                                                   "Created as a draft — add photos and publish")
+                                        :photosAttached (:attached ph)
+                                        :photosFailed (:failed ph)
+                                        :photoMessages (:messages ph)})))))
 
-       acc))
-   {:created 0 :updated 0 :skipped 0 :failed 0 :rows []}
-   plan-rows))
+          acc))
+      {:created 0 :updated 0 :skipped 0 :failed 0 :imagesAttached 0 :imagesFailed 0 :rows []}
+      plan-rows))))
 
 ;; --- CSV generation (export + template) -----------------------------
 
@@ -491,33 +665,64 @@
 ;; --- handlers ------------------------------------------------------
 
 (def ^:private max-bytes (* 2 1024 1024))
+(def ^:private max-commit-body (* 100 1024 1024))
+(def ^:private max-image-parts 60)
+(def ^:private batch-too-large-msg
+  "Import fewer photos at a time — split the CSV into smaller batches")
+
+(defn- as-vec [x]
+  (cond (nil? x) [] (sequential? x) (vec x) :else [x]))
 
 ;; NOTE: no per-identity rate-limit helper exists in this codebase yet (see the
 ;; same note in admin/auth.clj). When one lands, wrap `import-preview` with it —
 ;; the contract asks for a per-admin rate limit on POST /api/admin/products/import.
 
 (defn import-preview [{:keys [multipart-params]}]
-  (let [file (get multipart-params "file")]
+  (let [file (get multipart-params "file")
+        ;; repeatable `filename` text parts — the picked photos' names only, no
+        ;; bytes. Preview cross-references them against every row's `photos` cell.
+        selected-filenames (->> (as-vec (get multipart-params "filename"))
+                                (map #(if (map? %) (:filename %) (str %)))
+                                (remove str/blank?)
+                                vec)]
     (when-not (and file (:tempfile file))
       (throw (err/validation "Attach a CSV file in the \"file\" field.")))
     (when (> (long (or (:size file) 0)) max-bytes)
       (throw (err/validation "That file is over the 2 MB limit.")))
     (let [content (slurp (:tempfile file) :encoding "UTF-8")]
       (db/with-tx [conn]
-        (let [{:keys [rows]} (build-plan conn content)
+        (let [{:keys [rows selected]} (build-plan conn content selected-filenames)
               token (put-plan! (vec (remove #(= "error" (:action %)) rows)))]
           (resp/ok {:token token
-                    :summary (summary rows)
+                    :summary (summary rows selected)
                     :rows (mapv public-row rows)}))))))
 
 (def ^:private CommitReq
   [:map [:token [:and v/NonBlank [:re #"^imp_"]]]])
 
-(defn import-commit [{:keys [body-params headers context]}]
-  (let [key   (idem/require-key! headers)
-        in    (v/validate! CommitReq body-params)
-        token (:token in)
-        bh    (idem/hash-body body-params)
+(defn- images-by-basename [parts]
+  (reduce (fn [m p]
+            (if (and (map? p) (:tempfile p))
+              (assoc m (basename-lc (:filename p)) p)
+              m))
+          {}
+          parts))
+
+(defn import-commit [{:keys [body-params multipart-params headers context]}]
+  (let [key        (idem/require-key! headers)
+        multipart? (contains? (or multipart-params {}) "token")
+        token      (if multipart?
+                     (:token (v/validate! CommitReq {:token (get multipart-params "token")}))
+                     (:token (v/validate! CommitReq body-params)))
+        image-parts (when multipart? (as-vec (get multipart-params "image")))
+        _ (when multipart?
+            (let [clen (u/parse-long* (get headers "content-length"))]
+              (when (or (> (count image-parts) max-image-parts)
+                        (and clen (> (long clen) max-commit-body)))
+                ;; nothing commits — not even the text-only rows
+                (throw (err/ex 413 "import_batch_too_large" batch-too-large-msg)))))
+        imgs  (images-by-basename (or image-parts []))
+        bh    (idem/hash-body {:token token})
         prior (db/with-tx [c] (idem/lookup c "product_import_commit" key bh))]
     (if (and prior (:status prior))
       (assoc (resp/ok (:body prior)) :status (:status prior))
@@ -544,7 +749,7 @@
                              "That import was already applied. Re-export if you need to make more changes."))
               (do
                 (db/with-tx [c] (idem/reserve! c "product_import_commit" key bh))
-                (let [result (run-commit! (:rows entry) (get-in context [:admin :id]))]
+                (let [result (run-commit! (:rows entry) (get-in context [:admin :id]) imgs)]
                   (db/with-tx [c] (idem/save-result! c "product_import_commit" key 200 result))
                   (resp/ok result))))))))))
 
@@ -560,13 +765,17 @@
                             from products p
                             where p.status in ('draft','published')
                             order by p.name"])
-          out  (into [["name" "price" "description" "quantity" "category" "status"]]
+          ;; `photos` column is ALWAYS blank on export — product image filenames
+          ;; don't round-trip; a blank cell on re-import means "no photo change"
+          ;; and never clears an existing gallery.
+          out  (into [["name" "price" "description" "quantity" "category" "photos" "status"]]
                      (map (fn [r]
                             [(:name r)
                              (str (:price r))
                              (:description r)
                              (if (= 1 (long (:vc r))) (str (:stock r)) "")
                              (:category r)
+                             ""
                              (:status r)])
                           rows))]
       {:status 200
@@ -580,7 +789,11 @@
   (str "# Fill one row per product. A name that matches an existing product updates it; "
        "a new name creates a DRAFT product (add photos, then publish, from the Products page). "
        "category is required for new products, optional when updating. "
-       "price and quantity are whole numbers. Delete these example rows before importing."))
+       "price and quantity are whole numbers. "
+       "In \"photos\" put the image file names for that product separated by commas or semicolons "
+       "(first name = primary), then select those same files alongside this CSV when you upload; "
+       "leave \"photos\" blank to change nothing. "
+       "Delete these example rows before importing."))
 
 (defn template [_]
   {:status 200
@@ -588,10 +801,11 @@
              "Content-Disposition" "attachment; filename=\"house-of-esther-import-template.csv\""
              "Cache-Control" "no-store"}
    :body (str template-guidance "\n"
-              (csv-str [["name" "price" "description" "quantity" "category"]
+              (csv-str [["name" "price" "description" "quantity" "category" "photos"]
                         ["Orin Linen Dress" "5400"
-                         "A compact everyday linen dress in vegetable-washed linen." "8" "women"]
-                        ["Harlan Leather Belt" "2200" "" "15" "accessories"]]))})
+                         "A compact everyday linen dress in vegetable-washed linen." "8" "women"
+                         "orin-front.jpg;orin-back.jpg"]
+                        ["Harlan Leather Belt" "2200" "" "15" "accessories" ""]]))})
 
 (def routes
   [["/products/import"          {:post import-preview}]

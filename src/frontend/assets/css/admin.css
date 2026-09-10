@@ -528,8 +528,91 @@ table.admin-table {
   font-weight: 700;
   color: var(--color-primary);
 }
-.import-failed {
+.import-failed,
+.import-photo-fails {
   padding-left: 1.2em;
+}
+
+/* drop zone + photo picker (step 1) */
+.import-dropzone {
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-m);
+}
+.import-dropzone.is-drag {
+  border-color: var(--color-cta);
+  background: rgba(158, 60, 136, 0.06);
+}
+.import-dropzone__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+}
+
+/* count-strip photo tallies */
+.import-count--photo {
+  color: var(--color-primary);
+  background: rgba(74, 29, 66, 0.08);
+  border-color: rgba(74, 29, 66, 0.3);
+}
+.import-count--warn {
+  color: #8a6a1f;
+  background: rgba(176, 138, 70, 0.16);
+  border-color: rgba(176, 138, 70, 0.4);
+}
+
+/* per-row photo status cell */
+.import-photo {
+  margin: 0 0 var(--space-3xs);
+  font-size: var(--step--1);
+}
+.import-photo--ok {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.import-photo--warn {
+  color: #8a6a1f;
+}
+.import-photo--muted {
+  color: var(--text-muted);
+}
+
+/* ---- Products list: bulk status action bar ---- */
+.bulk-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-s);
+  padding: var(--space-2xs) var(--space-s);
+  border: 1px solid var(--color-cta);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+.bulk-bar[hidden] {
+  display: none;
+}
+.bulk-bar__count {
+  font-weight: 700;
+  margin-right: var(--space-2xs);
+}
+.bulk-bar__confirm {
+  margin: 0;
+  flex-basis: 100%;
+  font-weight: 700;
+}
+.bulk-bar__hint {
+  flex-basis: 100%;
+  margin: var(--space-3xs) 0 0;
+}
+.admin-table--select th:first-child,
+.admin-table--select td:first-child {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
 }
 
 /* ---- Shop owner's guide (static help page) ---- */

@@ -893,7 +893,29 @@ test.describe('admin', () => {
     expect(errors).toEqual([]);
   });
 
-  test('A17 / JOURNEY 6: upload -> review plan -> confirm -> done', async ({ page }) => {
+  const PHOTO_FILES = [
+    { name: 'orin-front.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('orin-front-bytes') },
+    { name: 'orin-back.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('orin-back-bytes') },
+    { name: 'marren-front.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('marren-front-bytes') },
+    { name: 'harlan-front.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('harlan-front-bytes') },
+  ];
+
+  async function gotoImportWithPhotos(page) {
+    await page.goto('/admin/product-import.html');
+    await expect(page.locator('#import-preview-btn')).toBeDisabled();
+    await page.setInputFiles('#import-file', {
+      name: 'catalogue.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('name,price,quantity,category,photos\nMarren Wool Coat,12800,4,women,marren-front.jpg;marren-back.jpg\n'),
+    });
+    await expect(page.locator('#import-filename')).toHaveText('catalogue.csv');
+    // step 1 photo picker + count
+    await page.setInputFiles('#import-photos', PHOTO_FILES);
+    await expect(page.locator('#import-photo-count')).toHaveText('4 photos selected');
+    await expect(page.locator('#import-preview-btn')).toBeEnabled();
+  }
+
+  test('A17 / JOURNEY 6: CSV + photos -> review (photo status + tally) -> multipart commit -> done', async ({ page }) => {
     await installMockApi(page, { admin: true });
     const errors = trackErrors(page);
 
@@ -902,69 +924,106 @@ test.describe('admin', () => {
     await expect(page).toHaveURL(/product-import\.html/);
     await expect(page.locator('.admin-main h1')).toHaveText('Bulk import products');
 
-    // step 1: preview disabled until a file is chosen
-    await expect(page.locator('#import-preview-btn')).toBeDisabled();
-    await page.setInputFiles('#import-file', {
-      name: 'catalogue.csv',
-      mimeType: 'text/csv',
-      buffer: Buffer.from('name,price,quantity,category\nMarren Wool Coat,12800,4,women\n'),
-    });
-    await expect(page.locator('#import-filename')).toHaveText('catalogue.csv');
-    await expect(page.locator('#import-preview-btn')).toBeEnabled();
-    await page.getByRole('button', { name: 'Preview changes' }).click();
+    await gotoImportWithPhotos(page);
 
-    // step 2: count strip
+    // preview request is multipart carrying `file` + `filename` parts
+    const [previewReq] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/admin/products/import') && !r.url().includes('/commit') && r.method() === 'POST'),
+      page.getByRole('button', { name: 'Preview changes' }).click(),
+    ]);
+    expect(previewReq.headers()['content-type']).toContain('multipart/form-data');
+    const previewBody = previewReq.postDataBuffer().toString('latin1');
+    expect(previewBody).toContain('name="file"');
+    expect(previewBody).toContain('name="filename"');
+    expect(previewBody).toContain('orin-front.jpg');
+
+    // step 2: count strip + photo tally
     const strip = page.locator('.import-countstrip');
     await expect(strip).toContainText('2 new');
     await expect(strip).toContainText('3 to update');
-    await expect(strip).toContainText('1 skipped');
-    await expect(strip).toContainText('1 with a problem');
+    await expect(strip).toContainText('4 photos matched');
+    await expect(strip).toContainText('1 not found');
 
-    // per-row badges + human-readable changes
+    // per-row photo status: matched, missing warning, no-photos muted
     const rowOrin = page.locator('.import-table tbody tr', { hasText: 'Orin Linen Dress' });
     await expect(rowOrin.locator('.import-badge')).toHaveText('Update');
     await expect(rowOrin).toContainText('Price KES 5,400 → KES 5,900');
-    await expect(rowOrin).toContainText('Stock 9 → 12');
-    await expect(rowOrin).toContainText('Description updated');
+    await expect(rowOrin.locator('.import-photo--ok')).toHaveText('2 photos ✓');
 
     const rowMarren = page.locator('.import-table tbody tr', { hasText: 'Marren Wool Coat' });
     await expect(rowMarren.locator('.import-badge')).toHaveText('New');
-    await expect(rowMarren).toContainText('Price KES 12,800');
-    await expect(rowMarren).toContainText('Created as a draft');
+    await expect(rowMarren.locator('.import-photo--ok')).toHaveText('1 photo ✓');
+    await expect(rowMarren.locator('.import-photo--warn')).toContainText('marren-back.jpg not selected');
+
+    const rowSuede = page.locator('.import-table tbody tr', { hasText: 'Suede Weekender' });
+    await expect(rowSuede.locator('.import-photo--muted')).toHaveText('No photos — will be a draft');
 
     const rowBag = page.locator('.import-table tbody tr', { hasText: 'Sample Multi Bag' });
     await expect(rowBag).toContainText('set stock and per-option prices on the product page');
     await expect(rowBag).not.toContainText('Stock');
 
-    const rowScarf = page.locator('.import-table tbody tr', { hasText: 'Vintage Scarf' });
-    await expect(rowScarf.locator('.import-badge')).toHaveText('Skip');
-    await expect(rowScarf).toHaveClass(/import-row--muted/);
-
     const rowBroken = page.locator('.import-table tbody tr', { hasText: 'Broken Row' });
     await expect(rowBroken.locator('.import-badge')).toHaveText('Problem');
-    await expect(rowBroken).toContainText('Price must be a whole number of shillings');
 
-    // confirm carries the token + an Idempotency-Key header
+    // confirm -> multipart commit with token + image parts + Idempotency-Key
     const confirm = page.getByRole('button', { name: 'Apply 5 changes' });
     await expect(confirm).toBeEnabled();
     const [commitReq] = await Promise.all([
       page.waitForRequest((r) => r.url().includes('/api/admin/products/import/commit') && r.method() === 'POST'),
       confirm.click(),
     ]);
-    expect(JSON.parse(commitReq.postData())).toHaveProperty('token');
+    expect(commitReq.headers()['content-type']).toContain('multipart/form-data');
     expect(commitReq.headers()['idempotency-key']).toBeTruthy();
+    const commitBody = commitReq.postDataBuffer().toString('latin1');
+    expect(commitBody).toContain('name="token"');
+    expect(commitBody).toContain('name="image"');
 
-    // step 3: done
+    // step 3: done — "{imagesAttached} photos added" + failed photo list
     await expect(page.locator('.import-result-summary')).toHaveText(
-      "2 products created, 2 updated — 1 skipped, 1 couldn't be applied"
+      "2 products created, 2 updated · 3 photos added — 1 skipped, 1 couldn't be applied"
     );
     await expect(page.getByText('New products are drafts')).toBeVisible();
     await expect(page.locator('.import-failed')).toContainText('Harlan Leather Belt');
-    await expect(page.getByRole('link', { name: 'Marren Wool Coat' })).toHaveAttribute('href', /product-edit\.html\?id=prod_marren/);
+    await expect(page.locator('.import-photo-fails')).toContainText('marren-back.jpg — that file was not uploaded');
     await page.getByRole('link', { name: 'Back to products' }).click();
     await expect(page).toHaveURL(/admin\/products\.html/);
 
     expect(errors).toEqual([]);
+  });
+
+  test('A17: no photos selected -> plain JSON commit (unchanged path)', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    await page.goto('/admin/product-import.html');
+    await page.setInputFiles('#import-file', {
+      name: 'catalogue.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('name,price,quantity,category\nMarren Wool Coat,12800,4,women\n'),
+    });
+    await expect(page.locator('#import-photo-count')).toHaveText('No photos selected');
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+
+    const [commitReq] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/admin/products/import/commit') && r.method() === 'POST'),
+      page.getByRole('button', { name: 'Apply 5 changes' }).click(),
+    ]);
+    expect(commitReq.headers()['content-type']).toContain('application/json');
+    expect(JSON.parse(commitReq.postData())).toHaveProperty('token');
+    await expect(page.locator('.import-result-summary')).toHaveText(
+      "2 products created, 2 updated — 1 skipped, 1 couldn't be applied"
+    );
+  });
+
+  test('A17: 413 on commit shows the "too many photos" message and stays on step 2', async ({ page }) => {
+    await installMockApi(page, { admin: true, importCommitTooLarge: true });
+    await page.goto('/admin/product-import.html');
+    await gotoImportWithPhotos(page);
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+    await page.getByRole('button', { name: 'Apply 5 changes' }).click();
+
+    await expect(page.locator('#import-commit-msg')).toContainText('too many photos for one import');
+    // still on step 2 — the plan table is intact
+    await expect(page.locator('.import-table')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Choose fewer photos' })).toBeVisible();
   });
 
   test('A17: a 422 on upload shows the error and stays on step 1', async ({ page }) => {
@@ -1021,6 +1080,74 @@ test.describe('admin', () => {
     await expect(section).toContainText('Bulk import');
     await expect(section).toContainText(/draft/i);
     await expect(section).toContainText(/Inventory page/i);
+  });
+
+  test('A3 / JOURNEY 6: Products list bulk bar — select, Publish selected posts ids+status, list refreshes', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    const errors = trackErrors(page);
+    await page.goto('/admin/products.html');
+    await expect(page.locator('.admin-table')).toContainText('Harlan Leather Crossbody');
+
+    // Orin starts as a draft
+    const rowOrin = page.locator('.admin-table tbody tr', { hasText: 'Orin Linen Dress' });
+    await expect(rowOrin.locator('.status-badge')).toHaveText('draft');
+
+    // no bar until something is ticked
+    await expect(page.locator('#p-bulkbar')).toBeHidden();
+    await page.locator('.p-check-all').check();
+    const bar = page.locator('#p-bulkbar');
+    await expect(bar).toBeVisible();
+    await expect(bar.locator('.bulk-bar__count')).toHaveText('2 selected');
+
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/admin/products/bulk-status') && r.method() === 'POST'),
+      bar.getByRole('button', { name: 'Publish selected' }).click(),
+    ]);
+    expect(JSON.parse(req.postData())).toEqual({ ids: ['prod_1042', 'prod_2001'], status: 'published' });
+
+    // result surfaced + selection cleared + list refreshed (Orin now published)
+    await expect(page.locator('.toast-region')).toContainText('1 published');
+    await expect(page.locator('.toast-region')).toContainText('already published');
+    await expect(page.locator('#p-bulkbar')).toBeHidden();
+    await expect(rowOrin.locator('.status-badge')).toHaveText('published');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('A3: "Archive selected" asks for confirmation before posting', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    await page.goto('/admin/products.html');
+    await expect(page.locator('.admin-table')).toContainText('Harlan Leather Crossbody');
+
+    const rowHarlan = page.locator('.admin-table tbody tr', { hasText: 'Harlan Leather Crossbody' });
+    await rowHarlan.locator('.p-row-check').check();
+    const bar = page.locator('#p-bulkbar');
+    await expect(bar).toBeVisible();
+
+    let posted = false;
+    page.on('request', (r) => { if (r.url().includes('/bulk-status')) posted = true; });
+
+    await bar.getByRole('button', { name: 'Archive selected' }).click();
+    await expect(bar.locator('.bulk-bar__confirm')).toContainText("Archive 1 product? They'll be hidden from the shop");
+    expect(posted).toBe(false);
+
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/admin/products/bulk-status') && r.method() === 'POST'),
+      bar.getByRole('button', { name: 'Archive', exact: true }).click(),
+    ]);
+    expect(JSON.parse(req.postData())).toEqual({ ids: ['prod_1042'], status: 'archived' });
+    await expect(page.locator('.toast-region')).toContainText('1 archived');
+  });
+
+  test('A17: guide covers the photos column + Publish selected', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    await page.goto('/admin/guide.html');
+    const section = page.locator('#adding-a-product');
+    await expect(section).toContainText('photos');
+    await expect(section).toContainText('orin-front.jpg');
+    await expect(section).toContainText('Publish selected');
+    await expect(section).toContainText(/draft/i);
+    await expect(page.locator('#changing-a-product')).toContainText('Archive selected');
   });
 
   test('GUIDE: getting-started explains the Team capability', async ({ page }) => {

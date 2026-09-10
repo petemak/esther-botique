@@ -16,6 +16,13 @@
   ;; CSV parse + generate (A17 product bulk import / export)
   org.clojure/data.csv           {:mvn/version "1.1.1"}
 
+  ;; S3-compatible object storage for re-encoded image bytes (Cloudflare R2).
+  ;; aws-api is data-driven and pure-Clojure — small footprint, no AWS SDK v2
+  ;; transitive weight, and trivial to stub in tests.
+  com.cognitect.aws/api          {:mvn/version "0.8.847"}
+  com.cognitect.aws/endpoints    {:mvn/version "871.2.54.13"}
+  com.cognitect.aws/s3           {:mvn/version "871.2.51.4"}
+
   ;; Persistence
   com.github.seancorfield/next.jdbc {:mvn/version "1.3.955"}
   org.postgresql/postgresql         {:mvn/version "42.7.4"}

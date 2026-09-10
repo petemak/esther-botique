@@ -425,9 +425,25 @@ Target: "House of Esther contact / customer service".
 
 ### 32. Products list (admin)
 - Table: image, name, category, price, total stock, status (Draft/Published/Archived),
-  updated date. Search + filter by category/status. Bulk publish/archive.
+  updated date. Search + filter by category/status.
+- **Bulk status actions** — a leading **checkbox column** on every row plus a
+  **select-all** checkbox in the table header (selects the rows currently shown for the
+  active filter/page). The moment one or more rows are selected a **bulk action bar**
+  appears (pinned above the table or as a sticky footer) showing the selection count and
+  three buttons: **Publish selected**, **Archive selected**, **Back to draft**. Each
+  calls `POST /api/admin/products/bulk-status` with the selected `ids` and the target
+  `status` (`published` / `archived` / `draft`), then refreshes the list. **Archive
+  selected** shows a confirm ("Archived products leave the storefront and search. Orders
+  that include them are unaffected."); publish and back-to-draft apply without a confirm.
+  The outcome is surfaced inline from the response — e.g. "12 published · 1 already
+  published · 1 couldn't be updated" (built from `updated` + the `results[]` array);
+  re-applying a status a product already has is reported as "skipped", not an error.
+  Selection is capped at 200 ids per call (select-all past that disables with a hint to
+  filter first). Publishing a photo-less product is allowed — the storefront renders the
+  placeholder image — so nothing is blocked on that basis. This is the flow the owner
+  uses straight after a bulk import to publish the new drafts (user-journey 6).
 - **Catalogue tools row** (sits next to "Add product"):
-  - **Bulk import (CSV)** — opens the import panel below (or `/admin/products/import`).
+  - **Bulk import (CSV + photos)** — opens the import panel below (or `/admin/products/import`).
   - **Download current products (CSV)** — a plain link to `GET /api/admin/products/export`
     that triggers a file save (`house-of-esther-products-<date>.csv`).
   - **Download template (CSV)** — a plain link to
@@ -435,29 +451,49 @@ Target: "House of Esther contact / customer service".
     `#` guidance line).
 - **Bulk import panel** — three steps, on the same page (revealed by the button) or at
   `/admin/products/import`. Purpose: let the owner populate / bulk-update the catalogue
-  from a spreadsheet instead of one product at a time. Staff-level (`require-admin`), not
-  owner-only.
-  1. **Upload.** A file picker (accepts `.csv`; max 2 MB; max 1000 data rows) with short
-     plain-language instructions:
+  from a spreadsheet instead of one product at a time, and attach product photos in the
+  same pass. Staff-level (`require-admin`), not owner-only.
+  1. **Upload.** A file picker (multi-file select / drag-in) that takes the **CSV**
+     (`.csv`; max 2 MB; max 1000 data rows) **and the product photo files together**,
+     with short plain-language instructions:
      - Columns: `name`, `price`, `quantity` are required; `category` is required for new
-       products, optional when updating; `description` is optional. Header names are
-       case-insensitive and any order; common synonyms are accepted (product/title,
-       amount, qty/stock, cat, desc).
+       products, optional when updating; `description` and `photos` are optional. Header
+       names are case-insensitive and any order; common synonyms are accepted
+       (product/title, amount, qty/stock, cat, desc, images/photo/image).
      - A row whose `name` matches an existing product **updates** it; a new `name`
-       **creates a draft** — you add photos and publish it from the Products page.
+       **creates a draft** — you review the Products list and publish (nothing
+       auto-publishes, even with photos).
      - `price` and `quantity` are whole numbers (shillings / units).
+     - **Photos (optional).** In the CSV's `photos` column list the image file names for
+       each product, comma- or semicolon-separated, in the order you want them shown —
+       the first is the primary image. Then select those same image files here alongside
+       the CSV. Matching is by file name only, case-insensitive. A product with no photos
+       is fine — it is created as a draft with no image, and you can add photos later on
+       the product page. A named file you forgot to select is flagged in the review but
+       does not block the row.
+     - Accepts the same image types as the product-page uploader; the whole photo batch
+       is capped (~100 MB and ~60 image files) — split a large catalogue into runs.
      Links to "Download the template" and "Download current products" repeat here.
-     Submit → `POST /api/admin/products/import` — this **parses and plans only, it writes
-     nothing** — then moves to step 2.
+     Submit → `POST /api/admin/products/import` (`multipart/form-data`: the CSV as `file`
+     plus one `filename` text part per selected image — **names only, no bytes yet**) —
+     this **parses and plans only; it writes nothing and uploads no images** — then moves
+     to step 2.
   2. **Review the plan.** Rendered from the preview response.
      - **Count strip:** e.g. "3 new · 6 updated · 2 skipped · 1 problem" (from
-       `summary.toCreate / toUpdate / toSkip / errors`).
+       `summary.toCreate / toUpdate / toSkip / errors`), plus a photo tally when photos
+       were selected — "14 photos to add · 1 not selected" (from `summary.photos`).
      - **Per-row table:** file row number, product name, an **action badge**
        (New / Update / Skip / Problem), the specific **before → after** changes
        (`price 5,400 → 5,900`; `stock 3 → 8`; `description "will change"`; `category
        "stays in women"` or `"women → men"` — only fields that actually change are
-       shown), and any **notes / message**:
+       shown), a **photo status** cell (from the row's `photos` object — e.g. "2 photos
+       matched", "2 matched · 'maren-2.jpg' missing"), and any **notes / message**:
        - "Created as a draft — add photos and publish from the Products page" (New rows).
+       - "2 photos matched" / "photo 'maren-2.jpg' missing — add it on the product page"
+         (per-row photo status; a missing photo is a note, not a Problem — the row still
+         applies).
+       - "No photos — will be created as a draft with no image" (a New row with an empty
+         `photos` cell).
        - "Displayed price and description updated — set stock and per-option prices on
          the product page" (an Update on a product that has multiple size/colour
          variants — its per-variant price and stock are deliberately not touched, so
@@ -469,25 +505,37 @@ Target: "House of Esther contact / customer service".
        *will not apply*.
   3. **Confirm.** An **"Apply N changes"** button (N = creates + updates) that commits the
      exact plan: `POST /api/admin/products/import/commit` with the preview `token` and a
-     client-generated `Idempotency-Key`. **Disabled when there is nothing to apply**
-     (0 creates and 0 updates — e.g. re-uploading an unmodified export). Problem rows stay
-     listed with their messages so the owner can fix the spreadsheet and re-upload; the
-     panel does not block on them.
+     client-generated `Idempotency-Key`. When photos were selected the frontend sends
+     this as `multipart/form-data` — the `token` plus the actual `image` files it held
+     back at preview; with no photos it stays a plain JSON `{ token }` post.
+     **Disabled when there is nothing to apply** (0 creates and 0 updates — e.g.
+     re-uploading an unmodified export). Problem rows stay listed with their messages so
+     the owner can fix the spreadsheet and re-upload; the panel does not block on them.
      - **After commit:** a result summary ("3 created as drafts · 5 updated · 1 skipped ·
-       1 couldn't be applied") with per-row results; created drafts link to their edit
-       pages; a link back to the Products list.
+       1 couldn't be applied · 15 photos added · 1 photo skipped") with per-row results —
+       each row also showing photos attached / failed (from `rows[].photosAttached` /
+       `photosFailed` / `photoMessages`); created drafts link to their edit pages; a link
+       back to the Products list, where the owner selects the new drafts and uses
+       **Publish selected**.
 - **Edge states for the panel:**
   - **Token expired** (owner left the review open past the ~15-minute TTL) — commit
     returns `410`; show "This preview has expired — upload the file again" and return to
     step 1. Nothing was applied.
   - **Already applied** (`409 import_token_used`, or an idempotency replay) — show "These
     changes were already applied" and link to the Products list.
+  - **Photo batch too large** (`413` / `import_batch_too_large`) — "Too many photos in one
+    go — split the CSV into smaller batches and import again." Nothing was applied (not
+    even the text-only rows); return to step 1.
   - **Row failed only at apply time** (someone edited that product between preview and
     confirm) — shown in the result as "couldn't be applied — re-export and try again";
-    the other rows still committed.
+    the other rows still committed. A single photo that fails (missing file, bad encode,
+    storage error) does **not** fail its row — the text changes and the other photos
+    still commit, and the failure is listed per row.
 - Frontend must also add a **"Bulk import"** subsection to the admin guide's "Adding a
   product" area (the guide page owns that copy — do not edit the guide from here).
-- Dynamic: admin product list; CSV import preview + commit; CSV export; import template
+- Dynamic: admin product list; **bulk status change** (publish / archive / back to draft)
+  via `POST /api/admin/products/bulk-status`; CSV import preview + commit (commit carries
+  the photo files; re-encoded images go to object storage); CSV export; import template
   download (A17).
 
 ### 33. Product create / edit (admin)
@@ -496,7 +544,14 @@ Target: "House of Esther contact / customer service".
 - **Media** — image uploader: drag-drop, reorder, set alt text, mark primary. On upload
   the backend re-encodes to budget (full <= ~300 KB / ~2000px, thumb <= ~60 KB / ~800px)
   and stores to object storage / CDN; the form only ever holds URLs + ids, never the
-  original bytes for display.
+  original bytes for display. Re-encoded bytes are written to S3-compatible object
+  storage (Cloudflare R2) and served from `MEDIA_BASE_URL` — see `api-contract.md` A4 for
+  the `MEDIA_S3_ENDPOINT` / `MEDIA_S3_BUCKET` / `MEDIA_S3_ACCESS_KEY_ID` /
+  `MEDIA_S3_SECRET_ACCESS_KEY` / `MEDIA_BASE_URL` config (env only, no hardcoded secret).
+  Bulk-import photos (page 32) go through the same ingest and storage path. Seed images
+  keep serving from the Netlify `/seed/` build (`CDN_BASE_URL` unchanged) for now — a
+  deliberate interim split that closes the pre-launch "backend is not an image server"
+  gap for admin and bulk-import uploads.
 - **Variants** — define option axes (e.g. Size, Colour); grid of generated variants,
   each with SKU, price, compare-at price, stock quantity, low-stock threshold, per-variant
   image ref, enabled flag.
@@ -666,7 +721,7 @@ post-reset change is forced before anything else.
 
 | Category (scope-checklist) | Where it lives |
 |---|---|
-| Catalog / inventory | Pages 2-6 (storefront), 32-35 (admin products, inventory, collections); bulk CSV import / export on page 32 (A17) |
+| Catalog / inventory | Pages 2-6 (storefront), 32-35 (admin products, inventory, collections); bulk CSV import / export on page 32 (A17 — the import also carries product photos, which are re-encoded and stored in object storage); bulk publish / archive / back-to-draft on the page-32 products list (`POST /api/admin/products/bulk-status`) |
 | Payments / checkout | Page 8 (checkout: M-Pesa STK + pay on delivery), 9 (confirmation), 37 (admin payment/refund) |
 | Accounts / auth | Pages 23-29 (customer), 30 (admin sign in), 44 (admin self-service / forced password change); guest checkout on page 8 |
 | Admin / back-office | Pages 30-44 plus 38A (gated routes in the one build, server-enforced admin role; page 43 Team is owner-only, page 44 is the admin account / password area) |
@@ -722,9 +777,10 @@ post-reset change is forced before anything else.
 - **Trust strip** — icon (Antique Gold, decorative) + label items.
 - **Newsletter block** — email + submit + consent line + double-opt-in feedback.
 - **Image gallery** — carousel (mobile) / thumb-column + main + lightbox (desktop).
-- **Admin table** — sortable columns, filters, row actions, bulk actions, pagination
-  (reused across products, orders, inventory, reviews, contact messages, subscribers,
-  discounts, team).
+- **Admin table** — sortable columns, filters, row actions, bulk actions (checkbox
+  column + select-all + a bulk action bar that appears on selection), pagination (reused
+  across products, orders, inventory, reviews, contact messages, subscribers, discounts,
+  team).
 - **Admin sidebar nav** — shared across every admin page; role-gated (the Team item
   renders only for `role = 'owner'`); carries the Account affordance and Sign out.
 - **Forced password-change screen** — full-page admin shell with no nav, shown whenever
@@ -733,12 +789,15 @@ post-reset change is forced before anything else.
 - **Admin form shell** — section cards, sticky save bar, dirty-state guard.
 - **Rich text editor** — product story, Journal, legal docs.
 - **Image uploader** — drag-drop, reorder, alt text, primary flag, shows re-encoded
-  result + size.
-- **CSV import wizard** (admin, page 32) — file picker with size/row limits + inline
-  rules, a plan-review screen (count strip + per-row diff table with action badges and
-  before→after values), and a confirm/commit control with token-expired and
-  already-applied states. Backed by A17 (preview writes nothing; commit applies the
-  plan, idempotent).
+  result + size. Re-encoded bytes land in object storage (Cloudflare R2) and render from
+  `MEDIA_BASE_URL`.
+- **CSV import wizard** (admin, page 32) — multi-file picker taking the CSV **and** the
+  product photo files together, with size / row / photo-batch limits + inline rules; a
+  plan-review screen (count strip incl. a photo tally + per-row diff table with action
+  badges, before→after values, and per-row photo status — matched / missing); and a
+  confirm/commit control with token-expired, already-applied and batch-too-large states.
+  Backed by A17 (preview writes nothing and uploads nothing; commit applies the plan and
+  uploads matched photos to object storage, idempotent).
 
 ---
 
@@ -776,8 +835,8 @@ post-reset change is forced before anything else.
 | D28 | Journal list + article by slug | Journal | read (cacheable) |
 | A1 | Admin auth (login / logout / me / change-password) | Admin sign in, forced + normal password change (page 44) | write + read |
 | A2 | Admin dashboard summary | Admin dashboard | read |
-| A3 | Admin products CRUD + draft-product preview | Products admin, Product edit | read + write |
-| A4 | Admin image upload / delete | Product edit | write |
+| A3 | Admin products CRUD + draft-product preview + bulk status (publish / archive / back to draft) | Products admin, Product edit | read + write |
+| A4 | Admin image upload / delete (re-encoded bytes → object storage / Cloudflare R2, `MEDIA_*` config) | Product edit | write |
 | A5 | Admin variant + inventory adjustments | Product edit, Inventory | read + write |
 | A6 | Admin categories + collections CRUD | Collections admin | read + write |
 | A7 | Admin orders list / detail | Orders admin | read |
@@ -790,7 +849,7 @@ post-reset change is forced before anything else.
 | A14 | Admin discounts CRUD | Discounts admin | read + write |
 | A15 | Admin contact inbox — list, detail, mark handled (read-only; replies by email) | Contact messages admin (page 38A) | read + write |
 | A16 | Admin team (admin users): list, create, edit name/role/status, reset password (owner-only) | Team admin (page 43) | read + write |
-| A17 | Product bulk import (CSV preview + commit), CSV export, import template | Products list admin (page 32) | read + write (import commit is idempotent) |
+| A17 | Product bulk import (CSV preview + commit; commit also uploads product photos to object storage), CSV export, import template | Products list admin (page 32) | read + write (import commit is idempotent) |
 
 ---
 

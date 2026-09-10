@@ -203,6 +203,13 @@ export const api = {
     updateProduct: (id, body) => patch(`/admin/products/${encodeURIComponent(id)}`, body),
     deleteProduct: (id) => del(`/admin/products/${encodeURIComponent(id)}`),
 
+    /**
+     * A3 — bulk publish / archive / back-to-draft from the Products list.
+     * `ids` 1..200, `status` ∈ published | archived | draft. X-CSRF-Token rides
+     * along automatically (mutating request). Returns { updated, results[] }.
+     */
+    bulkProductStatus: (ids, status) => post('/admin/products/bulk-status', { ids, status }),
+
     uploadImage: (file, alt) => {
       const fd = new FormData();
       fd.append('file', file);
@@ -214,15 +221,33 @@ export const api = {
     /** Same-origin authenticated GETs returning Content-Disposition: attachment. Used as plain <a href>. */
     productsExportUrl: () => `${CONFIG.apiBase.replace(/\/$/, '')}/admin/products/export`,
     importTemplateUrl: () => `${CONFIG.apiBase.replace(/\/$/, '')}/admin/products/import/template`,
-    /** Step 1 — parse + validate + plan; writes nothing. Returns { token, summary, rows }. */
-    importProducts: (file) => {
+    /**
+     * Step 1 — parse + validate + plan; writes nothing, uploads nothing.
+     * `multipart/form-data`: the CSV as `file`, plus one `filename` text part per
+     * selected photo (name only, no bytes) so the server can compute per-row
+     * matched / missing. Returns { token, summary, rows }.
+     */
+    importProducts: (file, photoFiles) => {
       const fd = new FormData();
       fd.append('file', file);
+      (photoFiles || []).forEach((f) => fd.append('filename', f.name));
       return request('POST', '/admin/products/import', { formData: fd });
     },
-    /** Step 2 — apply a previously-returned plan. Idempotency-Key required (same as POST /orders). */
-    commitImport: (token, idempotencyKey) =>
-      post('/admin/products/import/commit', { token }, { idempotencyKey }),
+    /**
+     * Step 2 — apply a previously-returned plan. Idempotency-Key required (same as POST /orders).
+     * No photos in the plan → plain JSON `{ token }`. Photos in the plan → `multipart/form-data`
+     * with a `token` text part + one binary `image` part per selected File (send them all;
+     * the backend ignores any not referenced by a committing row).
+     */
+    commitImport: (token, idempotencyKey, photoFiles) => {
+      if (photoFiles && photoFiles.length) {
+        const fd = new FormData();
+        fd.append('token', token);
+        photoFiles.forEach((f) => fd.append('image', f));
+        return request('POST', '/admin/products/import/commit', { formData: fd, idempotencyKey });
+      }
+      return post('/admin/products/import/commit', { token }, { idempotencyKey });
+    },
     deleteImage: (id) => del(`/admin/images/${encodeURIComponent(id)}`),
 
     updateVariant: (productId, variantId, body) =>

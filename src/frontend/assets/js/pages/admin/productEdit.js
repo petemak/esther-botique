@@ -149,7 +149,7 @@ function mediaCard() {
       document.createTextNode('Choose files'),
       el('input', { type: 'file', accept: 'image/*', multiple: true, class: 'visually-hidden', on: { change: (e) => uploadFiles(e.target.files) } }),
     ]),
-    el('p', { class: 'hint', text: 'We re-encode on upload to meet the size budget (full ≤ ~300 KB / 2000px, thumb ≤ ~60 KB / 800px), strip EXIF and convert to WebP.' }),
+    el('p', { class: 'hint', text: 'We re-encode each photo on upload to meet the size budget (full ≤ ~300 KB / 2000px, thumb ≤ ~60 KB / 800px) and strip EXIF data.' }),
   ]);
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = 'var(--color-bg-sink)'; });
   drop.addEventListener('dragleave', () => { drop.style.background = ''; });

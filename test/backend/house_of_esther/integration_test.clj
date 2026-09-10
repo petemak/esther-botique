@@ -78,6 +78,55 @@
                      :else b)]
     {:status (:status resp) :body parsed :jar (collect-cookies jar resp) :raw resp}))
 
+(defn- multipart-bytes
+  "Assemble a multipart/form-data body as a byte array. Each part map:
+   {:name .. :filename .. :content-type .. :bytes <byte[]|String>}."
+  [boundary parts]
+  (let [baos (java.io.ByteArrayOutputStream.)
+        w  (fn [^String s] (.write baos (.getBytes s "UTF-8")))
+        wb (fn [b] (.write baos (if (string? b) (.getBytes ^String b "UTF-8") b)))]
+    (doseq [{:keys [name filename content-type bytes]} parts]
+      (w (str "--" boundary "\r\n"))
+      (w (str "Content-Disposition: form-data; name=\"" name "\""
+              (when filename (str "; filename=\"" filename "\"")) "\r\n"))
+      (when content-type (w (str "Content-Type: " content-type "\r\n")))
+      (w "\r\n")
+      (wb bytes)
+      (w "\r\n"))
+    (w (str "--" boundary "--\r\n"))
+    (.toByteArray baos)))
+
+(defn- mp-call
+  "POST a multi-part multipart/form-data body (CSV + filename/image parts)."
+  [{:keys [uri jar csrf parts headers]}]
+  (let [boundary "----hoembndryX7f3"
+        body (multipart-bytes boundary parts)
+        resp (*handler*
+              {:request-method :post
+               :uri uri
+               :remote-addr "203.0.113.7"
+               :headers (cond-> {"accept" "application/json"
+                                 "content-type" (str "multipart/form-data; boundary=" boundary)
+                                 "content-length" (str (alength body))}
+                          csrf (assoc "x-csrf-token" csrf)
+                          headers (merge headers)
+                          (cookie-header jar) (assoc "cookie" (cookie-header jar)))
+               :body (ByteArrayInputStream. body)})
+        b (:body resp)
+        parsed (cond (nil? b) nil
+                     (string? b) (try (j/read-value b mapper) (catch Exception _ b))
+                     (instance? java.io.InputStream b) (j/read-value b mapper)
+                     :else b)]
+    {:status (:status resp) :body parsed :jar (collect-cookies jar resp) :raw resp}))
+
+(defn- png-bytes
+  "A small, genuinely-decodable PNG."
+  [w h]
+  (let [img  (java.awt.image.BufferedImage. w h java.awt.image.BufferedImage/TYPE_INT_RGB)
+        baos (java.io.ByteArrayOutputStream.)]
+    (javax.imageio.ImageIO/write img "png" baos)
+    (.toByteArray baos)))
+
 (use-fixtures :once
   (fn [t]
     (if-not db-url
@@ -357,7 +406,8 @@
               b (:body r)]
           (is (= 200 (:status r)) (pr-str b))
           (is (str/starts-with? (:token b) "imp_"))
-          (is (= {:toCreate 1 :toUpdate 2 :toSkip 1 :errors 2 :totalRows 6}
+          (is (= {:toCreate 1 :toUpdate 2 :toSkip 1 :errors 2 :totalRows 6
+                  :photos {:selected 0 :matched 0 :missing 0}}
                  (:summary b)))
           (let [rows (into {} (map (juxt :row identity) (:rows b)))]
             (is (= "update" (:action (rows 2))))
@@ -497,7 +547,7 @@
           (is (str/starts-with? (get-in r [:raw :headers "Content-Type"]) "text/csv"))
           (is (str/includes? (get-in r [:raw :headers "Content-Disposition"]) "house-of-esther-products-"))
           (is (= "no-store" (get-in r [:raw :headers "Cache-Control"])))
-          (is (= "name,price,description,quantity,category,status"
+          (is (= "name,price,description,quantity,category,photos,status"
                  (first (str/split-lines csv))))
           (let [pr (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv csv})
                 sm (get-in pr [:body :summary])]
@@ -528,7 +578,251 @@
               csv (get-in r [:raw :body])]
           (is (= 200 (:status r)))
           (is (str/starts-with? csv "#"))
-          (is (some #(= "name,price,description,quantity,category" %) (str/split-lines csv)))
+          (is (some #(= "name,price,description,quantity,category,photos" %) (str/split-lines csv)))
           (let [pr (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv csv})]
             (is (= 200 (:status pr)))
             (is (zero? (:errors (get-in pr [:body :summary]))))))))))
+
+;; --- A3 bulk-status --------------------------------------------------
+
+(deftest admin-product-bulk-status
+  (when db-url
+    (let [{:keys [jar]} (admin-login)
+          csrf (get jar "he_csrf")
+          hdr  {"x-csrf-token" csrf}
+          mk   (fn [nm slug status]
+                 (:id (:body (call {:method :post :uri "/api/admin/products" :jar jar :headers hdr
+                                    :body {:name nm :slug slug :category "women"
+                                           :basePrice {:amount 1000 :currency "KES"}
+                                           :variants [{:options {} :sku (str "BS-" (str/upper-case slug))
+                                                       :price {:amount 1000 :currency "KES"} :stock 1}]
+                                           :status status}}))))
+          a (mk "Bulk Status A" "bulk-status-a" "draft")
+          b (mk "Bulk Status B" "bulk-status-b" "published")]
+
+      (testing "unauthenticated -> stopped (401 or CSRF 403)"
+        (is (#{401 403} (:status (call {:method :post :uri "/api/admin/products/bulk-status"
+                                        :body {:ids [a] :status "draft"}})))))
+
+      (testing "mixed ids: real + already-in-target + unknown -> per-id results, deduped, in order"
+        (let [r (call {:method :post :uri "/api/admin/products/bulk-status" :jar jar :headers hdr
+                       :body {:ids [a a b "prod_missing_xyz"] :status "published"}})
+              bd (:body r)]
+          (is (= 200 (:status r)))
+          (is (= "no-store" (get-in r [:raw :headers "Cache-Control"])))
+          (is (= [a b "prod_missing_xyz"] (mapv :id (:results bd))) "one entry per deduped id, request order")
+          (is (= "updated" (:result (nth (:results bd) 0))))
+          (is (= "skipped" (:result (nth (:results bd) 1))))
+          (is (= "Already published" (:message (nth (:results bd) 1))))
+          (is (= "failed"  (:result (nth (:results bd) 2))))
+          (is (= 1 (:updated bd)) "updated counts only real transitions")
+          (is (= "published" (:status (db/q1 ["select status from products where id = ?" a]))))))
+
+      (testing "re-applying is a no-op skip"
+        (let [r (call {:method :post :uri "/api/admin/products/bulk-status" :jar jar :headers hdr
+                       :body {:ids [a] :status "published"}})]
+          (is (= 0 (:updated (:body r))))
+          (is (= "skipped" (:result (first (:results (:body r))))))))
+
+      (testing "empty ids -> 422"
+        (is (= 422 (:status (call {:method :post :uri "/api/admin/products/bulk-status" :jar jar :headers hdr
+                                   :body {:ids [] :status "draft"}})))))
+      (testing "201 ids -> 422"
+        (is (= 422 (:status (call {:method :post :uri "/api/admin/products/bulk-status" :jar jar :headers hdr
+                                   :body {:ids (mapv #(str "prod_" %) (range 201)) :status "draft"}})))))
+      (testing "bad status -> 422"
+        (is (= 422 (:status (call {:method :post :uri "/api/admin/products/bulk-status" :jar jar :headers hdr
+                                   :body {:ids [a] :status "banana"}}))))))))
+
+;; --- A17 photo handling (preview filename parts + commit image parts) ---
+
+(def ^:private photo-csv
+  (str/join "\n"
+    ["name,price,quantity,category,photos"
+     "Photos Update One,2500,7,women,\"pu1-a.png; pu1-b.png\""
+     "Photos Create New,4000,3,women,pcn-front.PNG;pcn-bad.png;pcn-missing.png"
+     "Photos Update Multi,3300,5,accessories,pum-1.png"]))
+
+(deftest admin-import-photo-handling
+  (when db-url
+    (let [{:keys [jar]} (admin-login)
+          csrf (get jar "he_csrf")
+          hdr  {"x-csrf-token" csrf}]
+
+      ;; fresh targets, created with no gallery
+      (call {:method :post :uri "/api/admin/products" :jar jar :headers hdr
+             :body {:name "Photos Update One" :slug "photos-update-one" :category "women"
+                    :basePrice {:amount 2500 :currency "KES"}
+                    :variants [{:options {} :sku "PU1-OS" :price {:amount 2500 :currency "KES"} :stock 7}]
+                    :status "draft"}})
+      (call {:method :post :uri "/api/admin/products" :jar jar :headers hdr
+             :body {:name "Photos Update Multi" :slug "photos-update-multi" :category "accessories"
+                    :basePrice {:amount 3000 :currency "KES"}
+                    :variants [{:options {"Size" "S"} :sku "PUM-S" :price {:amount 3000 :currency "KES"} :stock 2}
+                               {:options {"Size" "M"} :sku "PUM-M" :price {:amount 3000 :currency "KES"} :stock 2}]
+                    :status "draft"}})
+
+      (testing "preview cross-references filename parts, writes nothing"
+        (let [r (mp-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                          :parts [{:name "file" :filename "p.csv" :content-type "text/csv" :bytes photo-csv}
+                                  {:name "filename" :bytes "pu1-a.png"}
+                                  {:name "filename" :bytes "pu1-b.png"}
+                                  {:name "filename" :bytes "pcn-front.png"}
+                                  {:name "filename" :bytes "pcn-bad.png"}
+                                  {:name "filename" :bytes "pum-1.png"}]})
+              bd (:body r)
+              rows (into {} (map (juxt :row identity) (:rows bd)))]
+          (is (= 200 (:status r)) (pr-str bd))
+          (is (= {:selected 5 :matched 5 :missing 1} (get-in bd [:summary :photos])))
+          (is (= {:count 2 :matched ["pu1-a.png" "pu1-b.png"] :missing []} (:photos (rows 2))))
+          (is (= {:count 3 :matched ["pcn-front.PNG" "pcn-bad.png"] :missing ["pcn-missing.png"]}
+                 (:photos (rows 3))))
+          (is (some #(str/includes? % "pcn-missing.png") (:notes (rows 3))))
+          (is (= "create" (:action (rows 3))))
+          (is (= {:count 1 :matched ["pum-1.png"] :missing []} (:photos (rows 4))))
+          (is (nil? (db/q1 ["select 1 from products where slug = 'photos-create-new'"])) "preview wrote nothing")
+          (is (empty? (:imageIds (db/q1 ["select image_ids as \"imageIds\" from products where slug = 'photos-update-one'"]))))))
+
+      (testing "commit multipart: images attached for create, appended for update, per-image failure isolated"
+        (let [tok (:token (:body (mp-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                                           :parts [{:name "file" :filename "p.csv" :content-type "text/csv" :bytes photo-csv}
+                                                   {:name "filename" :bytes "pu1-a.png"}
+                                                   {:name "filename" :bytes "pu1-b.png"}
+                                                   {:name "filename" :bytes "pcn-front.png"}
+                                                   {:name "filename" :bytes "pcn-bad.png"}
+                                                   {:name "filename" :bytes "pum-1.png"}]})))
+              r (mp-call {:uri "/api/admin/products/import/commit" :jar jar :csrf csrf
+                          :headers {"idempotency-key" "imp-photos-k1"}
+                          :parts [{:name "token" :bytes tok}
+                                  {:name "image" :filename "pu1-a.png" :content-type "image/png" :bytes (png-bytes 12 12)}
+                                  {:name "image" :filename "pu1-b.png" :content-type "image/png" :bytes (png-bytes 12 12)}
+                                  {:name "image" :filename "pcn-front.PNG" :content-type "image/png" :bytes (png-bytes 14 10)}
+                                  {:name "image" :filename "pcn-bad.png" :content-type "image/png" :bytes "this is not a png"}]})
+              bd (:body r)
+              rows (into {} (map (juxt :row identity) (:rows bd)))]
+          (is (= 200 (:status r)) (pr-str bd))
+          (is (= 1 (:created bd)))
+          (is (= 2 (:updated bd)))
+          (is (= 0 (:failed bd)))
+          (is (= 3 (:imagesAttached bd)))
+          (is (= 2 (:imagesFailed bd)))
+
+          (testing "single-variant update: matched images appended, primary set (was empty)"
+            (let [p (db/q1 ["select image_ids as \"imageIds\", primary_image_id as \"pid\"
+                             from products where slug = 'photos-update-one'"])]
+              (is (= 2 (count (:imageIds p))))
+              (is (= (first (:imageIds p)) (:pid p)))
+              (is (= 2 (:photosAttached (rows 2))))
+              (is (= 0 (:photosFailed (rows 2))))))
+
+          (testing "create: one good photo linked, corrupt one isolated, row still created as draft"
+            (let [p (db/q1 ["select id, status, image_ids as \"imageIds\", primary_image_id as \"pid\"
+                             from products where slug = 'photos-create-new'"])]
+              (is (= "draft" (:status p)))
+              (is (= 1 (count (:imageIds p))))
+              (is (= (first (:imageIds p)) (:pid p)))
+              (is (= 1 (:photosAttached (rows 3))))
+              (is (= 1 (:photosFailed (rows 3))))
+              (is (some #(str/includes? % "pcn-bad.png") (:photoMessages (rows 3))))))
+
+          (testing "multi-variant update: named photo not uploaded -> failure recorded, text still applied"
+            (let [p (db/q1 ["select base_price_amount as \"bp\", image_ids as \"imageIds\"
+                             from products where slug = 'photos-update-multi'"])]
+              (is (= 3300 (:bp p)) "price change still committed")
+              (is (empty? (:imageIds p)))
+              (is (= 0 (:photosAttached (rows 4))))
+              (is (= 1 (:photosFailed (rows 4))))
+              (is (some #(str/includes? % "was not uploaded") (:photoMessages (rows 4))))))))
+
+      (testing "JSON-body commit still works for a no-photo plan"
+        (let [tok (:token (:body (mp-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                                           :parts [{:name "file" :filename "p.csv" :content-type "text/csv"
+                                                    :bytes "name,price,quantity,category\nPhotos Update One,2600,7,women"}]})))
+              r (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                       :headers (assoc hdr "idempotency-key" "imp-photos-json-k1")
+                       :body {:token tok}})]
+          (is (= 200 (:status r)))
+          (is (= 0 (:imagesAttached (:body r))))
+          (is (= [] (:photoMessages (first (:rows (:body r))))))))
+
+      (testing "commit with 61 image parts -> 413 import_batch_too_large, nothing committed"
+        (let [tok (:token (:body (mp-call {:uri "/api/admin/products/import" :jar jar :csrf csrf
+                                           :parts [{:name "file" :filename "p.csv" :content-type "text/csv"
+                                                    :bytes "name,price,quantity,category,photos\nBatch Cap Product,1200,2,women,bc-1.png"}
+                                                   {:name "filename" :bytes "bc-1.png"}]})))
+              parts (into [{:name "token" :bytes tok}]
+                          (for [i (range 61)]
+                            {:name "image" :filename (str "x" i ".png") :content-type "image/png" :bytes (png-bytes 4 4)}))
+              r (mp-call {:uri "/api/admin/products/import/commit" :jar jar :csrf csrf
+                          :headers {"idempotency-key" "imp-photos-cap-k1"} :parts parts})]
+          (is (= 413 (:status r)))
+          (is (= "import_batch_too_large" (get-in r [:body :error :code])))
+          (is (nil? (db/q1 ["select 1 from products where slug = 'batch-cap-product'"])) "nothing committed")
+          (is (false? (:consumed (get @@#'pimport/plan-cache tok))) "token not consumed"))))))
+
+;; --- A17 blank `price` on an UPDATE row = no change ----------------
+
+(deftest admin-import-blank-price-on-update
+  (when db-url
+    (let [{:keys [jar]} (admin-login)
+          csrf (get jar "he_csrf")
+          hdr  {"x-csrf-token" csrf}]
+      (call {:method :post :uri "/api/admin/products" :jar jar :headers hdr
+             :body {:name "Blank Price Target" :slug "blank-price-target" :category "women"
+                    :basePrice {:amount 4400 :currency "KES"}
+                    :variants [{:options {} :sku "BPT-OS" :price {:amount 4400 :currency "KES"} :stock 5}]
+                    :status "draft"}})
+      (call {:method :post :uri "/api/admin/products" :jar jar :headers hdr
+             :body {:name "Blank Everything Multi" :slug "blank-everything-multi" :category "accessories"
+                    :basePrice {:amount 3000 :currency "KES"}
+                    :variants [{:options {"Size" "S"} :sku "BEM-S" :price {:amount 3000 :currency "KES"} :stock 2}
+                               {:options {"Size" "M"} :sku "BEM-M" :price {:amount 3000 :currency "KES"} :stock 2}]
+                    :status "draft"}})
+
+      (testing "update row: blank price + changed quantity -> quantity applied via audited adjustment, price untouched, no error"
+        (let [csv (str/join "\n" ["name,price,quantity,category"
+                                  "Blank Price Target,,9,women"
+                                  "Blank Everything Multi,,,accessories"])
+              pr  (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv csv})
+              rows (into {} (map (juxt :row identity) (:rows (:body pr))))]
+          (is (= 200 (:status pr)) (pr-str (:body pr)))
+          (is (zero? (:errors (get-in pr [:body :summary]))))
+          (is (= "update" (:action (rows 2))))
+          (is (nil? (get-in (rows 2) [:changes :price])) "blank price -> changes.price absent")
+          (is (= {:from 5 :to 9} (get-in (rows 2) [:changes :quantity])))
+          (is (= "skip" (:action (rows 3))) "blank everything -> skip")
+          (is (= ["No changes — already up to date"] (:notes (rows 3))))
+          (let [tok (:token (:body pr))
+                cr  (call {:method :post :uri "/api/admin/products/import/commit" :jar jar
+                           :headers (assoc hdr "idempotency-key" "imp-blankprice-k1")
+                           :body {:token tok}})]
+            (is (= 200 (:status cr)) (pr-str (:body cr)))
+            (is (= 1 (:updated (:body cr))))
+            (is (= 1 (:skipped (:body cr))))
+            (is (= 0 (:failed (:body cr))))
+            (is (= 4400 (:bp (db/q1 ["select base_price_amount as \"bp\" from products where slug = 'blank-price-target'"])))
+                "price left alone")
+            (is (= 9 (:stock (db/q1 ["select stock from product_variants where sku = 'BPT-OS'"]))))
+            (let [adj (db/q1 ["select delta, reason from inventory_adjustments a
+                               join product_variants pv on pv.id = a.variant_id
+                               where pv.sku = 'BPT-OS' and a.reason = 'bulk_import'"])]
+              (is (= 4 (:delta adj)))))))
+
+      (testing "blank price on a CREATE row -> still a row error"
+        (let [csv (str/join "\n" ["name,price,quantity,category"
+                                  "Totally New No Price,,3,women"])
+              pr  (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv csv})
+              row (first (:rows (:body pr)))]
+          (is (= 200 (:status pr)))
+          (is (= 1 (:errors (get-in pr [:body :summary]))))
+          (is (= "error" (:action row)))
+          (is (str/includes? (str/lower-case (str (:message row))) "price"))
+          (is (nil? (db/q1 ["select 1 from products where slug = 'totally-new-no-price'"])))))
+
+      (testing "present-but-non-numeric price still errors (unchanged)"
+        (let [csv (str/join "\n" ["name,price,quantity,category"
+                                  "Blank Price Target,KES 5000,9,women"])
+              pr  (multipart-call {:uri "/api/admin/products/import" :jar jar :csrf csrf :csv csv})
+              row (first (:rows (:body pr)))]
+          (is (= "error" (:action row)))
+          (is (str/includes? (:message row) "whole number")))))))

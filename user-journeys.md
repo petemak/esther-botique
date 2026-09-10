@@ -10,7 +10,7 @@ Six journeys, in priority order:
 3. Owner (Esther): add a product with photos and stock, verify it's live
 4. Owner (Esther): fulfil an order (mark dispatched) and handle a return/refund
 5. Owner (Esther): add a staff member; the staff member is forced to set their own password
-6. Owner (Esther): bulk-update the catalogue from a spreadsheet (CSV export → edit → import → review → confirm)
+6. Owner (Esther): bulk-update the catalogue from a spreadsheet, with photos (CSV export → edit → import → review → confirm → bulk-publish)
 
 ---
 
@@ -142,9 +142,9 @@ Lives in Nakuru.
    softens instead of cracking") in the rich-text field, plus care and a spec list.
 4. **Media.** She drags in 4 photos. Each upload is `POST /api/admin/images`
    (multipart); the backend re-encodes to budget (full <= ~300 KB / ~2000px, thumb
-   <= ~60 KB / ~800px, EXIF stripped, WebP) and returns CDN URLs + byte sizes shown
-   under each thumbnail. She writes alt text for each and marks the front shot
-   **primary**.
+   <= ~60 KB / ~800px, EXIF stripped, WebP), uploads the re-encoded bytes to object
+   storage (Cloudflare R2), and returns `MEDIA_BASE_URL` URLs + byte sizes shown under
+   each thumbnail. She writes alt text for each and marks the front shot **primary**.
 5. **Variants.** She sets option axes Colour = [Tan, Black], Size = [One size]. The form
    generates 2 variant rows. For each she enters SKU, price KES 6,800, compare-at KES
    8,200, stock (Tan 7, Black 4), low-stock threshold 2, and links the matching image.
@@ -284,37 +284,55 @@ owner.
 
 **Persona:** Esther, at her laptop, doing a seasonal price review. She has ~40 products
 and wants to nudge prices and correct stock counts in one pass rather than open 40 edit
-pages. She also has three new arrivals whose photos are not ready yet, but whose names,
-prices and stock she already knows.
+pages. She also has three new arrivals — and this time their photos **are** ready: a
+folder of JPEGs straight off the camera, two or three shots per piece.
 
 1. She signs in at `/admin/signin.html` and opens **Products** (page 32,
    `GET /api/admin/products`).
 2. In the catalogue-tools row next to **Add product** she clicks **Download current
    products (CSV)** (`GET /api/admin/products/export`). Her browser saves
    `house-of-esther-products-2026-09-09.csv` — one row per non-archived product,
-   columns `name,price,description,quantity,category,status`. The multi-option
-   "Sample Multi Bag" (two colours) has a **blank quantity** cell, because per-option
-   stock is managed on the product page.
+   columns `name,price,description,quantity,category,photos,status` (the `photos` column
+   is blank for every row — export can't round-trip photo file names, the column is
+   there so the header matches the import format). The multi-option "Sample Multi Bag"
+   (two colours) also has a **blank quantity** cell, because per-option stock is managed
+   on the product page.
 3. She opens the file in Google Sheets. She raises `price` on six single-option pieces,
    corrects `quantity` on a few where the shop count was wrong, bumps the multi-option
    bag's `price`, and adds **three new rows** for the new arrivals — name, price,
-   quantity, `category = women`, description left blank. She saves as CSV.
+   quantity, `category = women`, description left blank. In the **`photos`** column she
+   lists the file names for each new arrival in the order she wants them shown, first =
+   primary (`orin-front.jpg;orin-back.jpg` for the Orin dress;
+   `maren-1.jpg;maren-2.jpg;maren-3.jpg` for the Maren skirt; two shots for the third).
+   She also drops `harlan-front.jpg` into the `photos` cell of one existing product she
+   finally has a better shot of. She saves as CSV.
 4. Back in admin she clicks **Bulk import**. The panel opens on **step 1 (Upload)** with
    plain-language rules: name + price + quantity required; category required for new
    items; a name that matches an existing product updates it, a new name creates a
-   **draft** (photos and publish happen on the product page); whole numbers only. She
-   picks her file and submits.
-5. The frontend sends `POST /api/admin/products/import` (`multipart/form-data`, one
-   `file`). The server parses the CSV, slugifies each name with the same rule as the
-   product form, matches against `products.slug`, builds a plan, and returns it with a
-   `token`. **Nothing has been written to the database.**
+   **draft**; whole numbers only; and — in the `photos` column — the image file names,
+   first = primary, with the matching files selected here too. In the file picker she
+   selects the CSV **and**, with Ctrl-A in the photo folder, all ~14 JPEGs at once
+   (drag-in works the same). She submits.
+5. The frontend sends `POST /api/admin/products/import` (`multipart/form-data`: the CSV
+   as `file` plus one `filename` text part per selected JPEG — **names only, no bytes**).
+   The server parses the CSV, slugifies each name with the same rule as the product form,
+   matches against `products.slug`, cross-references each row's `photos` column against
+   the selected file names (by basename, case-insensitively), builds a plan, and returns
+   it with a `token`. **Nothing has been written to the database and no image has been
+   uploaded.**
 6. **Step 2 (Review the plan)** renders. The **count strip** reads
-   **"3 new · 6 updated · 1 skipped · 0 problems"**. The per-row table shows:
+   **"3 new · 6 updated · 1 skipped · 0 problems · 7 photos to add · 1 not selected"**.
+   The per-row table shows:
    - the six price updates with **price 5,400 → 5,900** style before/after, and where she
      changed it a **stock 3 → 8** line (marked as an audited adjustment, not an
      overwrite);
-   - the three new rows badged **New**, each with the note **"Created as a draft — add
-     photos and publish from the Products page"**;
+   - the three new rows badged **New** — the Orin dress **"2 photos matched"**, the Maren
+     skirt **"2 photos matched · photo 'maren-2.jpg' missing — add it on the product
+     page"** (she mistyped the file name in the sheet), the third new piece **"2 photos
+     matched"**, each still noted **"Created as a draft — add photos and publish from the
+     Products page"** (a missing photo is a note, not a Problem — the row still applies);
+   - one existing product badged **Update** also showing **"1 photo matched — will be
+     added to the gallery"**;
    - the multi-option bag badged **Update**, counted among the six, with the note
      **"Displayed price and description updated — set stock and per-option prices on the
      product page"** and deliberately **no** stock line (she briefly expected the blank
@@ -323,26 +341,42 @@ prices and stock she already knows.
      **"This product is archived — restore it first, then re-import"**. Not an error,
      just not applied.
 7. She clicks **Apply 9 changes** (3 creates + 6 updates; the skipped row does not
-   count). The frontend sends `POST /api/admin/products/import/commit` with the `token`
-   and a fresh `Idempotency-Key`.
+   count). Because she selected photos, the frontend sends
+   `POST /api/admin/products/import/commit` as `multipart/form-data` this time — the
+   `token`, a fresh `Idempotency-Key`, and the actual JPEG files it held back at preview
+   (well under the ~100 MB / ~60-image batch cap).
 8. The server applies the plan row by row: it creates the three drafts (each `status =
    'draft'`, one default variant with an auto SKU from the slug, `price_amount` and
    `stock` from the row), updates the six base prices (and the matching single variant's
    price), and for each row where she changed stock writes a **`bulk_import` inventory
    adjustment** (`delta = new − current`) so the movement is on the audit trail. The
    multi-option bag gets only its `base_price_amount` updated — no variant price or
-   variant stock is touched.
-9. **Result screen:** "3 created as drafts · 6 updated · 1 skipped". Each new draft links
-   to its edit page ("add photos, then publish"). She opens one — Media is empty, Status
-   is Draft — exactly as expected.
+   variant stock is touched. For each row with matched photos it re-encodes every image
+   to the per-image budget (full ≤ 300 KB / ≤ 2000px, thumb ≤ 60 KB / ≤ 800px, EXIF
+   stripped — the same `encode-within-budget` path as a normal admin upload), PUTs both
+   renditions to object storage (Cloudflare R2), and creates the `images` rows: the three
+   new drafts get their `image_ids` set in CSV order with the first as `primary_image_id`;
+   the one updated product has its matched image **appended** to its existing gallery. The
+   Maren skirt's missing `maren-2.jpg` is simply not attached — its other two shots are,
+   and the row still commits.
+9. **Result screen:** "3 created as drafts · 6 updated · 1 skipped · 7 photos added · 1
+   photo skipped". The Maren row carries the line **"maren-2.jpg — that file was not
+   uploaded"**. Each new draft links to its edit page. She opens the Orin draft — Media
+   now shows its two images, the front one primary, Status still Draft — exactly as
+   expected.
 10. She returns to the **Products list** (`GET /api/admin/products`) and sees the six
-    updated prices and the three new **Draft** rows. (The public catalogue is CDN-cached
-    for ~2 minutes; the admin list reads live.)
+    updated prices and the three new **Draft** rows, each now showing a thumbnail. She
+    quick-checks the three drafts' PDPs via **Preview**, then **ticks their checkboxes**
+    in the list and clicks **Publish selected** in the bulk action bar
+    (`POST /api/admin/products/bulk-status { ids: [...], status: "published" }`). The
+    response is `{ "updated": 3, "results": [ ... ] }` and the rows flip to **Published**.
+    (The public catalogue is CDN-cached for ~2 minutes; the admin list reads live.)
 11. She opens **Inventory → adjustments** (`GET /api/admin/inventory/adjustments`) and
     sees the new `bulk_import` entries with her name against them.
-12. **Ends at:** Products list showing the new drafts and updated prices; stock changes
-    recorded as audited adjustments; adding photos and publishing the three drafts is the
-    only thing left to do.
+12. **Ends at:** three new products created as drafts, their photos in object storage and
+    on the PDP, then published in one bulk action; the six prices updated; stock changes
+    recorded as audited adjustments. The only follow-up is re-uploading Maren's
+    `maren-2.jpg` from that product's Media panel.
 
 **Expired-preview branch:** if she leaves the review screen open over lunch and clicks
 **Apply** an hour later, the commit returns `410 import_token_expired`. The panel says
@@ -352,10 +386,17 @@ was applied.
 **Already-applied branch:** if she double-clicks **Apply**, or reloads and clicks again,
 the second call replays the same `Idempotency-Key` (same result) or, if the token was
 already consumed, returns `409 import_token_used` — the panel shows "These changes were
-already applied" and links to the Products list. The three drafts are not created twice.
+already applied" and links to the Products list. The three drafts are not created twice
+and no photo is uploaded twice.
 
 **Re-run branch:** re-uploading the same, now-unmodified export produces an all
 "update, no change" plan; **Apply** is disabled because there is nothing to apply.
+
+**Photo-batch-too-large branch:** if she tries to push a whole season of new arrivals
+with dozens of full-size photos in one import and the upload exceeds ~100 MB or ~60
+image files, the commit returns `413 import_batch_too_large` and the panel says "Too
+many photos in one go — split the CSV into smaller batches and import again." Nothing
+was applied (not even the text-only rows); she re-uploads a smaller slice.
 
 ---
 
@@ -399,3 +440,12 @@ already applied" and links to the Products list. The three drafts are not create
   go through `bulk_import` inventory adjustments, never a raw stock overwrite, so the
   audit trail stays intact — and a multi-variant product's per-option stock and prices
   are never touched by a CSV.
+- **Bulk-imported drafts still need a deliberate publish, and photos ride the commit not
+  the preview.** Journey 6 depends on `POST /api/admin/products/import` carrying only the
+  selected file *names* (cheap preview, nothing uploaded) and the commit carrying the
+  bytes; and on the new photo-bearing rows still arriving as `draft` — nothing
+  auto-publishes — so Esther selects them on the Products list and hits **Publish
+  selected** (`POST /api/admin/products/bulk-status`). A per-photo failure (missing file,
+  bad encode, storage error) must not mark the whole row failed: the text changes and the
+  photos that did work still commit, and the failure is reported per row so she can fix
+  just that one image later.

@@ -205,6 +205,8 @@ export async function installMockApi(page, opts = {}) {
     : null;
   state.contacts = CONTACTS.map((c) => ({ ...c }));
   state.user = opts.user || null;
+  // A3 bulk-status: admin list statuses live here so bulk actions + refresh round-trip.
+  state.adminProductStatus = { prod_1042: 'published', prod_2001: 'draft' };
 
   // Route on the context so popups (e.g. the admin "Preview" new tab) share the mock + state.
   await page.context().route('**/api/**', async (route) => {
@@ -551,7 +553,21 @@ export async function installMockApi(page, opts = {}) {
     }
 
     if (path === '/admin/dashboard') return json(200, { orders: { newToday: 6, awaitingDispatch: 4, payOnDeliveryUnpaid: 3 }, attention: { lowStockVariants: 5, outOfStockPublished: 2, reviewsPending: 3, contactUnhandled: 2 }, revenueToday: KES(41200) });
-    if (path === '/admin/products' && method === 'GET') return json(200, { items: PRODUCTS.map((p) => ({ id: p.id, name: p.name, slug: p.slug, category: p.category, status: 'published', price: p.price, totalStock: 7, variantCount: p.variants.length, primaryThumbUrl: '/assets/img/placeholder.svg', updatedAt: '2026-09-05T10:00:00Z' })), page: 1, pageSize: 20, total: PRODUCTS.length, totalPages: 1 });
+    if (path === '/admin/products' && method === 'GET') return json(200, { items: PRODUCTS.map((p) => ({ id: p.id, name: p.name, slug: p.slug, category: p.category, status: state.adminProductStatus[p.id] || 'published', price: p.price, totalStock: 7, variantCount: p.variants.length, primaryThumbUrl: '/assets/img/placeholder.svg', updatedAt: '2026-09-05T10:00:00Z' })), page: 1, pageSize: 20, total: PRODUCTS.length, totalPages: 1 });
+    if (path === '/admin/products/bulk-status' && method === 'POST') {
+      if (!state.session) return err(401, 'unauthorized', 'Sign in.');
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids)] : [];
+      if (!ids.length || ids.length > 200) return err(422, 'validation_error', 'ids must be 1–200 product ids.');
+      if (!['published', 'archived', 'draft'].includes(body.status)) return err(422, 'validation_error', 'Bad status.');
+      const results = ids.map((id) => {
+        const cur = state.adminProductStatus[id];
+        if (cur === undefined) return { id, result: 'failed', message: 'No product with that id' };
+        if (cur === body.status) return { id, result: 'skipped', message: `Already ${body.status}` };
+        state.adminProductStatus[id] = body.status;
+        return { id, result: 'updated', message: null };
+      });
+      return json(200, { updated: results.filter((r) => r.result === 'updated').length, results });
+    }
     if (path.match(/^\/admin\/products\/[^/]+\/preview$/) && method === 'GET') {
       const id = path.split('/')[3];
       const p = PRODUCTS.find((x) => x.id === id) || (id === 'prod_new' ? { ...PRODUCTS[0], id: 'prod_new', slug: 'test-sample-product', name: 'Test Sample Product' } : null);
@@ -600,15 +616,47 @@ export async function installMockApi(page, opts = {}) {
     }
     if (path === '/admin/products/import' && method === 'POST') {
       if (!state.session) return err(401, 'unauthorized', 'Sign in.');
-      const raw = req.postData() || '';
-      if (/filename="[^"]*(broken|missing)[^"]*"/i.test(raw)) {
+      const rawBuf = typeof req.postDataBuffer === 'function' ? req.postDataBuffer() : null;
+      const raw = rawBuf ? rawBuf.toString('latin1') : (req.postData() || '');
+      if (/filename="[^"]*(broken|badfile)[^"]*"/i.test(raw)) {
         return err(422, 'validation_error', 'The file is missing a required column: quantity.');
       }
+      // A17: the frontend sends one `filename` text part per selected photo (name only).
+      const selectedNames = [...raw.matchAll(/name="filename"\r?\n\r?\n([^\r\n]+)/g)].map((m) => m[1].trim());
+      const has = (n) => selectedNames.some((s) => s.toLowerCase() === n.toLowerCase());
+      // Which photo file names each row's `photos` column references (fixed test fixture).
+      const wants = {
+        'Orin Linen Dress': ['orin-front.jpg', 'orin-back.jpg'],
+        'Marren Wool Coat': ['marren-front.jpg', 'marren-back.jpg'],
+        'Suede Weekender': [],
+        'Harlan Leather Belt': ['harlan-front.jpg'],
+      };
+      const photosFor = (name) => {
+        const list = wants[name] || [];
+        const matched = list.filter(has);
+        const missing = list.filter((n) => !has(n));
+        return { count: list.length, matched, missing };
+      };
+      const matchedSet = new Set();
+      const missingSet = new Set();
+      Object.keys(wants).forEach((name) => {
+        const pf = photosFor(name);
+        pf.matched.forEach((n) => matchedSet.add(n.toLowerCase()));
+        pf.missing.forEach((n) => missingSet.add(n.toLowerCase()));
+      });
+      const rowNote = (name) => {
+        const pf = photosFor(name);
+        return pf.missing.map((n) => `Photo ${n} was not selected — add it on the product page`);
+      };
+
       state.importToken = `imp_${Date.now().toString(16)}`;
       state.importUsed = false;
       return json(200, {
         token: state.importToken,
-        summary: { toCreate: 2, toUpdate: 3, toSkip: 1, errors: 1, totalRows: 7 },
+        summary: {
+          toCreate: 2, toUpdate: 3, toSkip: 1, errors: 1, totalRows: 7,
+          photos: { selected: selectedNames.length, matched: matchedSet.size, missing: missingSet.size },
+        },
         rows: [
           {
             row: 2, name: 'Orin Linen Dress', slug: 'orin-linen-dress', action: 'update',
@@ -618,7 +666,8 @@ export async function installMockApi(page, opts = {}) {
               description: { changed: true },
               category: { from: 'women', to: 'women' },
             },
-            notes: [], message: null,
+            photos: photosFor('Orin Linen Dress'),
+            notes: rowNote('Orin Linen Dress'), message: null,
           },
           {
             row: 3, name: 'Marren Wool Coat', slug: 'marren-wool-coat', action: 'create',
@@ -628,7 +677,8 @@ export async function installMockApi(page, opts = {}) {
               description: { changed: true },
               category: { from: null, to: 'women' },
             },
-            notes: ['Created as a draft — add photos and publish from the Products page'], message: null,
+            photos: photosFor('Marren Wool Coat'),
+            notes: ['Created as a draft — add photos and publish from the Products page', ...rowNote('Marren Wool Coat')], message: null,
           },
           {
             row: 4, name: 'Suede Weekender', slug: 'suede-weekender', action: 'create',
@@ -637,26 +687,31 @@ export async function installMockApi(page, opts = {}) {
               quantity: { from: null, to: 6 },
               category: { from: null, to: 'accessories' },
             },
-            notes: ['Created as a draft — add photos and publish from the Products page'], message: null,
+            photos: photosFor('Suede Weekender'),
+            notes: ['No photos — will be created as a draft with no image'], message: null,
           },
           {
             row: 5, name: 'Sample Multi Bag', slug: 'sample-multi-bag', action: 'update',
             changes: { price: { from: 6800, to: 7200 }, description: { changed: false } },
+            photos: { count: 0, matched: [], missing: [] },
             notes: ['Displayed price and description updated — set stock and per-option prices on the product page'], message: null,
           },
           {
             row: 6, name: 'Harlan Leather Belt', slug: 'harlan-leather-belt', action: 'update',
             changes: { price: { from: 2200, to: 2400 } },
-            notes: [], message: null,
+            photos: photosFor('Harlan Leather Belt'),
+            notes: rowNote('Harlan Leather Belt'), message: null,
           },
           {
             row: 7, name: 'Vintage Scarf', slug: 'vintage-scarf', action: 'skip',
             changes: {},
+            photos: { count: 0, matched: [], missing: [] },
             notes: ['This product is archived — restore it first, then re-import'], message: null,
           },
           {
             row: 8, name: 'Broken Row', slug: 'broken-row', action: 'error',
             changes: {},
+            photos: { count: 0, matched: [], missing: [] },
             notes: [], message: 'Price must be a whole number of shillings',
           },
         ],
@@ -666,27 +721,45 @@ export async function installMockApi(page, opts = {}) {
       if (!state.session) return err(401, 'unauthorized', 'Sign in.');
       const idemKey = req.headers()['idempotency-key'];
       if (!idemKey) return err(422, 'validation_error', 'Missing Idempotency-Key header.');
-      if (!body || typeof body.token !== 'string') return err(422, 'validation_error', 'Body must be { token }.');
+      const ctype = req.headers()['content-type'] || '';
+      const multipart = ctype.includes('multipart/form-data');
+      const rawBuf = typeof req.postDataBuffer === 'function' ? req.postDataBuffer() : null;
+      const raw = rawBuf ? rawBuf.toString('latin1') : (req.postData() || '');
+      const token = multipart
+        ? (raw.match(/name="token"\r?\n\r?\n([^\r\n]+)/) || [])[1]
+        : (body && body.token);
+      const imageParts = multipart ? (raw.match(/name="image"/g) || []).length : 0;
+      if (typeof token !== 'string') return err(422, 'validation_error', 'No token (JSON body or multipart part).');
+      if (opts.importCommitTooLarge) {
+        return err(413, 'import_batch_too_large', 'Import fewer photos at a time — split the CSV into smaller batches');
+      }
       if (opts.importCommitExpired) return err(410, 'import_token_expired', 'This preview has expired — upload the file again.');
       if (opts.importCommitUsed) return err(409, 'import_token_used', 'These changes were already applied.');
-      if (body.token !== state.importToken) return err(404, 'not_found', 'Unknown import token.');
+      if (token !== state.importToken) return err(404, 'not_found', 'Unknown import token.');
       if (state.importUsed && state.importIdemKey !== idemKey) {
         return err(409, 'import_token_used', 'These changes were already applied.');
       }
       state.importUsed = true;
       state.importIdemKey = idemKey;
+      // With photos: Orin gets 2, Marren gets 1 matched + 1 failed (marren-back.jpg not uploaded).
+      const withPhotos = imageParts > 0;
+      const orinPhotos = withPhotos ? 2 : 0;
+      const marrenAttached = withPhotos ? 1 : 0;
+      const marrenFailed = withPhotos ? 1 : 0;
       return json(200, {
         created: 2,
         updated: 2,
         skipped: 1,
         failed: 1,
+        imagesAttached: orinPhotos + marrenAttached,
+        imagesFailed: marrenFailed,
         rows: [
-          { row: 2, name: 'Orin Linen Dress', result: 'updated', productId: 'prod_2001', message: null },
-          { row: 3, name: 'Marren Wool Coat', result: 'created', productId: 'prod_marren', message: 'Created as a draft — add photos and publish' },
-          { row: 4, name: 'Suede Weekender', result: 'created', productId: 'prod_suede', message: 'Created as a draft — add photos and publish' },
-          { row: 5, name: 'Sample Multi Bag', result: 'updated', productId: 'prod_multibag', message: null },
-          { row: 6, name: 'Harlan Leather Belt', result: 'failed', productId: null, message: 'Someone edited this product while you were reviewing — re-export and try again' },
-          { row: 7, name: 'Vintage Scarf', result: 'skipped', productId: null, message: 'Archived — restore it first, then re-import' },
+          { row: 2, name: 'Orin Linen Dress', result: 'updated', productId: 'prod_2001', message: null, photosAttached: orinPhotos, photosFailed: 0, photoMessages: [] },
+          { row: 3, name: 'Marren Wool Coat', result: 'created', productId: 'prod_marren', message: 'Created as a draft — add photos and publish', photosAttached: marrenAttached, photosFailed: marrenFailed, photoMessages: marrenFailed ? ['marren-back.jpg — that file was not uploaded'] : [] },
+          { row: 4, name: 'Suede Weekender', result: 'created', productId: 'prod_suede', message: 'Created as a draft — add photos and publish', photosAttached: 0, photosFailed: 0, photoMessages: [] },
+          { row: 5, name: 'Sample Multi Bag', result: 'updated', productId: 'prod_multibag', message: null, photosAttached: 0, photosFailed: 0, photoMessages: [] },
+          { row: 6, name: 'Harlan Leather Belt', result: 'failed', productId: null, message: 'Someone edited this product while you were reviewing — re-export and try again', photosAttached: 0, photosFailed: 0, photoMessages: [] },
+          { row: 7, name: 'Vintage Scarf', result: 'skipped', productId: null, message: 'Archived — restore it first, then re-import', photosAttached: 0, photosFailed: 0, photoMessages: [] },
         ],
       });
     }

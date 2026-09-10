@@ -1,6 +1,7 @@
 (ns house-of-esther.admin.products
   "A3 products + A5 variant edits. Admin reads see every status."
   (:require [clojure.string :as str]
+            [clojure.tools.logging :as log]
             [house-of-esther.catalog :as catalog]
             [house-of-esther.db :as db]
             [house-of-esther.http.error :as err]
@@ -263,6 +264,56 @@
     (db/exec! conn ["update products set status = 'archived', updated_at = now() where id = ?" id])
     (resp/ok (admin-product conn id))))
 
+;; --- A3 bulk status ---------------------------------------
+
+(def ^:private BulkStatusReq
+  [:map
+   [:ids [:vector {:min 1 :max 200} v/NonBlank]]
+   [:status [:enum "published" "archived" "draft"]]])
+
+(defn- transition-status!
+  "Apply `status` to one product via the SAME update the single-product PATCH /
+   DELETE paths use (soft-delete for `archived`; stamp `published_at` on first
+   publish). No hard-delete. There is no explicit CDN purge on the single-product
+   path today (edge caches are short-TTL), so bulk matches it. Returns a
+   per-id result map."
+  [id status]
+  (db/with-tx [conn]
+    (let [p (db/q1 conn ["select status from products where id = ? for update" id])]
+      (cond
+        (nil? p)
+        {:id id :result "failed" :message "No product with that id"}
+
+        (= (:status p) status)
+        {:id id :result "skipped" :message (str "Already " status)}
+
+        :else
+        (do
+          (db/exec! conn ["update products
+                           set status = ?,
+                               published_at = case when ? = 'published' and published_at is null
+                                                   then now() else published_at end,
+                               updated_at = now()
+                           where id = ?" status status id])
+          {:id id :result "updated" :message nil})))))
+
+(defn- bulk-one! [id status]
+  (try
+    (transition-status! id status)
+    (catch Exception e
+      (log/error e "bulk-status transition failed" (pr-str {:id id :status status}))
+      {:id id :result "failed" :message "This product could not be updated — try again."})))
+
+(defn bulk-status
+  "POST /api/admin/products/bulk-status — one status to many products. Ids are
+   de-duped; each is applied independently (one bad id never fails the batch).
+   Publishing a photo-less product is allowed."
+  [{:keys [body-params]}]
+  (let [{:keys [ids status]} (v/validate! BulkStatusReq body-params)
+        results (mapv #(bulk-one! % status) (distinct ids))]
+    (resp/ok {:updated (count (filter #(= "updated" (:result %)) results))
+              :results results})))
+
 ;; --- A5 variant patch --------------------------------------
 
 (def ^:private VariantPatch
@@ -289,7 +340,11 @@
                                               from product_variants where id = ?" variantId])))))))
 
 (def routes
+  ;; `/products/bulk-status` is a static sibling of `/products/:id` — it must be
+  ;; listed first (router runs with :conflicts nil; static wins at match time
+  ;; only when declared ahead of the wildcard).
   [["/products" {:get list-products :post create-product}]
+   ["/products/bulk-status" {:post bulk-status}]
    ["/products/:id" {:get get-product :patch update-product :delete delete-product}]
    ["/products/:id/preview" {:get preview-product}]
    ["/products/:id/variants/:variantId" {:patch patch-variant}]])
