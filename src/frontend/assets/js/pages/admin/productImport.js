@@ -1,7 +1,8 @@
 import { api, ApiError } from '../../api.js';
 import { el, clear, $ } from '../../dom.js';
 import { adminShell } from './_shell.js';
-import { uuid, titleCase } from '../../util.js';
+import { uuid, titleCase, mapWithConcurrency } from '../../util.js';
+import { resizeImageForUpload } from '../../imageResize.js';
 
 /*
  * A17 — Product CSV bulk import wizard. Staff-level (require-admin), not owner-only.
@@ -10,7 +11,7 @@ import { uuid, titleCase } from '../../util.js';
  *                    (multipart: CSV `file` + one `filename` text part per photo — names only).
  *                    Parses + plans, writes nothing, uploads nothing.
  *   2. Review      — render summary + per-row plan (incl. photo status) from the 200 response
- *   3. Done        — render tallies from POST /api/admin/products/import/commit
+ *   3. Done        — render tallies from the commit + the client-side photo phase (below)
  *
  * Downloads (export + template) are plain <a href> to same-origin authenticated GETs
  * that return Content-Disposition: attachment — the session cookie rides along.
@@ -19,9 +20,33 @@ import { uuid, titleCase } from '../../util.js';
  * The key is generated once per preview and reused for every Apply click on that plan,
  * so a double-tap replays the stored result instead of applying twice.
  *
- * JSON vs multipart on commit: if the plan has no matched photos anywhere we send the
- * plain JSON `{ token }` (unchanged behaviour). If any row matched a photo we send
- * multipart — a `token` text part plus every selected image File as an `image` part.
+ * PHOTO DELIVERY (why this file looks the way it does):
+ * The commit call (`POST /admin/products/import/commit`) used to also carry every
+ * selected photo File in one multipart request. Netlify's rewrite-proxy to the Fly
+ * backend has a hard body-size ceiling of roughly 8-9 MB on a request shaped like that —
+ * above it Netlify itself returns a bare 400 before the request ever reaches our
+ * backend. A real bulk-photo import (7+ unprocessed phone photos) is routinely
+ * 15-40 MB and hit that wall every time.
+ *
+ * The fix: the commit is now ALWAYS plain `application/json { token }` — no photos ride
+ * along, so the request is tiny regardless of batch size. Once the commit succeeds,
+ * `runPhotoPhase()` uploads each matched photo individually via the already-reliable
+ * `POST /admin/images` (one small multipart request per photo, resized client-side
+ * first — see imageResize.js), then attaches the resulting ids to each row's product
+ * with `PATCH /admin/products/{id} { imageIds, primaryImageId }` — appending to any
+ * existing gallery for an `update` row, never wiping it.
+ *
+ * RETRY SAFETY: the CSV commit itself is idempotent (token + Idempotency-Key), but the
+ * client-orchestrated photo phase is not something the backend knows how to replay
+ * safely, so we never let it restart from scratch. `state.committed` latches true the
+ * moment the commit succeeds and the Apply button disappears for good on this plan —
+ * there is no code path back to it. Per-row / per-photo progress lives in
+ * `state.photoRows`, keyed by row, and persists for the life of the page: a photo
+ * already uploaded (`status: 'uploaded'`) is never re-uploaded, a row already fully
+ * attached (`attached: true` and no photos still `failed`) is skipped entirely, and an
+ * `update` row's pre-existing gallery is fetched at most once and cached
+ * (`existingFetched`). The "Retry photos" button on the Done screen re-runs
+ * `runPhotoPhase()`, which only touches rows/photos that did not fully succeed.
  */
 
 const state = {
@@ -29,11 +54,15 @@ const state = {
   photoFiles: [], // File[] selected alongside the CSV
   plan: null, // { token, summary, rows }
   commitKey: null,
-  result: null, // commit 200 body
+  committed: false, // true once the JSON commit has succeeded for this plan — never re-sent
+  result: null, // commit 200 body: { created, updated, skipped, failed, rows }
+  photoRows: null, // built once the commit succeeds — see buildPhotoRows()
+  photoProgress: null, // { rowIndex, rowTotal, photoIndex, photoTotal } while the photo phase runs
   uploadMessage: null,
 };
 
 const STEP_LABELS = ['Upload', 'Review', 'Done'];
+const MAX_PHOTOS = 60; // soft pacing cap, not a hard technical limit any more — see note in addPhotos()
 
 const BADGE = {
   create: ['New', 'new'],
@@ -177,14 +206,26 @@ function setCsv(file) {
 function addPhotos(files) {
   if (!files || !files.length) return;
   const seen = new Set(state.photoFiles.map((f) => `${f.name}:${f.size}`));
+  let skippedForCap = 0;
   files.forEach((f) => {
     if (f.type && !f.type.startsWith('image/')) return;
     const key = `${f.name}:${f.size}`;
     if (seen.has(key)) return;
+    if (state.photoFiles.length >= MAX_PHOTOS) { skippedForCap += 1; return; }
     seen.add(key);
     state.photoFiles.push(f);
   });
   refreshUploadUi();
+  // Each photo now uploads in its own small request, so this is a pacing choice (a very
+  // long sequential upload with no feedback would feel broken), not a hard technical
+  // limit — the old ~8-9 MB proxy ceiling this used to guard against no longer applies
+  // per-import now that no photos ride along with the commit.
+  if (skippedForCap > 0) {
+    showUploadMessage(
+      `Only kept the first ${MAX_PHOTOS} photos for this import — that's the most we take in one batch. Split the rest into another import.`,
+      'warning'
+    );
+  }
 }
 
 function refreshUploadUi() {
@@ -208,7 +249,10 @@ async function runPreview() {
     const plan = await api.admin.importProducts(state.file, state.photoFiles);
     state.plan = plan;
     state.commitKey = uuid();
+    state.committed = false;
     state.result = null;
+    state.photoRows = null;
+    state.photoProgress = null;
     state.uploadMessage = null;
     renderStep2();
   } catch (err) {
@@ -225,16 +269,12 @@ async function runPreview() {
   }
 }
 
-function showUploadMessage(text) {
+function showUploadMessage(text, kind = 'error') {
   const box = $('#import-upload-msg');
-  if (box) clear(box).append(el('p', { class: 'alert alert--error', text }));
+  if (box) clear(box).append(el('p', { class: `alert alert--${kind}`, text }));
 }
 
 /* ---------- step 2: review the plan ---------- */
-
-function planHasPhotos() {
-  return (state.plan.rows || []).some((r) => r.photos && (r.photos.matched || []).length > 0);
-}
 
 function renderStep2() {
   const { summary, rows } = state.plan;
@@ -370,20 +410,18 @@ function notesCell(r) {
 }
 
 async function runCommit() {
+  if (state.committed) return; // belt-and-braces — the Apply button no longer exists past this point
   const btn = $('#import-confirm-btn');
   const box = $('#import-commit-msg');
   const original = btn.textContent;
-  const withPhotos = planHasPhotos();
   clear(box);
   btn.disabled = true;
   btn.textContent = 'Applying…';
   try {
-    state.result = await api.admin.commitImport(
-      state.plan.token,
-      state.commitKey,
-      withPhotos ? state.photoFiles : null
-    );
-    renderStep3();
+    state.result = await api.admin.commitImport(state.plan.token, state.commitKey);
+    state.committed = true;
+    state.photoRows = buildPhotoRows(state.plan, state.result);
+    await runPhotoPhase();
   } catch (err) {
     if (err instanceof ApiError && (err.status === 410 || err.status === 409)) {
       state.uploadMessage = 'This preview has expired or was already applied — upload the file again.';
@@ -391,6 +429,8 @@ async function runCommit() {
       return;
     }
     if (err instanceof ApiError && err.status === 413) {
+      // Photos no longer ride along with this request, so this now only fires for a huge
+      // CSV itself — kept for that case and because the backend contract still defines it.
       btn.disabled = false;
       btn.textContent = original;
       clear(box).append(
@@ -420,8 +460,162 @@ function resetToUpload() {
   state.commitKey = null;
   state.file = null;
   state.photoFiles = [];
+  state.committed = false;
   state.result = null;
+  state.photoRows = null;
+  state.photoProgress = null;
   renderStep1();
+}
+
+/* ---------- photo phase: upload + attach, after the commit has succeeded ---------- */
+
+/**
+ * One entry per committed create/update row that named at least one matched photo.
+ * `photos` preserves the CSV's order (first = intended primary) and each entry tracks
+ * its own upload status so a retry never re-uploads something that already succeeded.
+ */
+function buildPhotoRows(plan, result) {
+  const planByRow = new Map((plan.rows || []).map((r) => [r.row, r]));
+  return (result.rows || [])
+    .filter((r) => (r.result === 'created' || r.result === 'updated') && r.productId)
+    .map((r) => {
+      const planRow = planByRow.get(r.row);
+      const matched = (planRow && planRow.photos && planRow.photos.matched) || [];
+      if (!matched.length) return null;
+      return {
+        row: r.row,
+        name: r.name,
+        productId: r.productId,
+        kind: r.result, // 'created' | 'updated'
+        photos: matched.map((filename) => ({ filename, status: 'pending', id: null, reason: null })),
+        existingFetched: false,
+        existingImageIds: [],
+        existingPrimaryImageId: null,
+        attached: false,
+        attachError: null,
+      };
+    })
+    .filter(Boolean);
+}
+
+/** A row still has outstanding work if it never fully attached, or a photo needs retrying. */
+function rowNeedsWork(pr) {
+  return !pr.attached || pr.photos.some((p) => p.status === 'failed');
+}
+
+function findPhotoFile(filename) {
+  const target = filename.toLowerCase();
+  return state.photoFiles.find((f) => f.name.toLowerCase() === target) || null;
+}
+
+async function runPhotoPhase() {
+  const rows = (state.photoRows || []).filter(rowNeedsWork);
+  if (!rows.length) {
+    state.photoProgress = null;
+    renderStep3();
+    return;
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const pr = rows[i];
+    const toUpload = pr.photos.filter((p) => p.status !== 'uploaded');
+    const photoTotal = pr.photos.length;
+    let completed = photoTotal - toUpload.length;
+
+    state.photoProgress = { rowIndex: i + 1, rowTotal: rows.length, photoIndex: Math.min(completed + 1, photoTotal), photoTotal };
+    renderPhotoProgress();
+
+    // Light concurrency (2 at a time), not a flood of simultaneous requests.
+    // Kept modest because re-encoding is CPU-bound on a small shared-vCPU backend;
+    // too much concurrency here risks slow responses that can trip a proxy timeout.
+    await mapWithConcurrency(toUpload, 2, async (photoEntry) => {
+      const file = findPhotoFile(photoEntry.filename);
+      if (!file) {
+        photoEntry.status = 'failed';
+        photoEntry.reason = 'that file was not selected';
+      } else {
+        try {
+          const toSend = await resizeImageForUpload(file);
+          const ref = await api.admin.uploadImage(toSend, '');
+          photoEntry.status = 'uploaded';
+          photoEntry.id = ref.id;
+        } catch (err) {
+          photoEntry.status = 'failed';
+          photoEntry.reason = (err && err.message) || 'upload failed';
+        }
+      }
+      completed += 1;
+      state.photoProgress = { rowIndex: i + 1, rowTotal: rows.length, photoIndex: Math.min(completed, photoTotal), photoTotal };
+      renderPhotoProgress();
+    });
+
+    await attachRowPhotos(pr);
+  }
+
+  state.photoProgress = null;
+  renderStep3();
+}
+
+/** Attach whatever uploaded successfully so far for this row. Append-only for updates. */
+async function attachRowPhotos(pr) {
+  const uploadedIds = pr.photos.filter((p) => p.status === 'uploaded').map((p) => p.id);
+  if (!uploadedIds.length) {
+    pr.attached = false;
+    return;
+  }
+  try {
+    if (pr.kind === 'updated' && !pr.existingFetched) {
+      const existing = await api.admin.getProduct(pr.productId);
+      pr.existingImageIds = (existing.images || []).map((im) => im.id);
+      pr.existingPrimaryImageId = existing.primaryImageId
+        || ((existing.images || []).find((im) => im.isPrimary) || {}).id
+        || null;
+      pr.existingFetched = true;
+    }
+    const combinedIds = pr.kind === 'updated' ? [...pr.existingImageIds, ...uploadedIds] : uploadedIds;
+    const primaryImageId = pr.kind === 'updated' ? (pr.existingPrimaryImageId || combinedIds[0]) : combinedIds[0];
+    await api.admin.updateProduct(pr.productId, { imageIds: combinedIds, primaryImageId });
+    pr.attached = true;
+    pr.attachError = null;
+  } catch (err) {
+    pr.attached = false;
+    pr.attachError = (err && err.message) || 'could not save photos to this product';
+  }
+}
+
+/** Per-row tallies for the Done screen, derived fresh from photo-entry state each render. */
+function rowPhotoSummary(pr) {
+  const uploadedCount = pr.photos.filter((p) => p.status === 'uploaded').length;
+  const failedEntries = pr.photos.filter((p) => p.status === 'failed');
+  const photosAttached = pr.attached ? uploadedCount : 0;
+  const attachBlockedCount = !pr.attached && uploadedCount ? uploadedCount : 0;
+  const photosFailed = failedEntries.length + attachBlockedCount;
+  const photoMessages = [
+    ...failedEntries.map((p) => `${p.filename} — ${p.reason}`),
+    ...(attachBlockedCount
+      ? [pr.attachError ? `Could not save the uploaded photos to this product — ${pr.attachError}` : 'Could not save the uploaded photos to this product']
+      : []),
+  ];
+  return { photosAttached, photosFailed, photoMessages, pending: rowNeedsWork(pr) };
+}
+
+async function retryPhotos() {
+  await runPhotoPhase();
+}
+
+function renderPhotoProgress() {
+  const p = state.photoProgress;
+  const message = p
+    ? `Adding photos: product ${p.rowIndex} of ${p.rowTotal} (photo ${p.photoIndex} of ${p.photoTotal})…`
+    : 'Saving your photos…';
+  clear(content).append(
+    backLink(),
+    stepIndicator(3),
+    el('div', { class: 'admin-section-card stack import-card' }, [
+      el('h2', { text: 'Adding photos' }),
+      el('p', { class: 'import-progress', role: 'status', 'aria-live': 'polite', text: message }),
+    ])
+  );
 }
 
 /* ---------- step 3: done ---------- */
@@ -432,12 +626,18 @@ function renderStep3() {
   const updated = res.updated || 0;
   const skipped = res.skipped || 0;
   const failed = res.failed || 0;
-  const imagesAttached = res.imagesAttached || 0;
-  const imagesFailed = res.imagesFailed || 0;
+
+  const photoSummaries = (state.photoRows || []).map((pr) => ({ pr, ...rowPhotoSummary(pr) }));
+  const imagesAttached = photoSummaries.reduce((sum, x) => sum + x.photosAttached, 0);
+  const imagesFailed = photoSummaries.reduce((sum, x) => sum + x.photosFailed, 0);
+  const hasPending = photoSummaries.some((x) => x.pending);
 
   let summaryText = `${created} ${created === 1 ? 'product' : 'products'} created, ${updated} updated`;
-  if (imagesAttached) {
-    summaryText += ` · ${imagesAttached} photo${imagesAttached === 1 ? '' : 's'} added`;
+  if (imagesAttached || imagesFailed) {
+    const photoParts = [];
+    if (imagesAttached) photoParts.push(`${imagesAttached} photo${imagesAttached === 1 ? '' : 's'} added`);
+    if (imagesFailed) photoParts.push(`${imagesFailed} photo${imagesFailed === 1 ? '' : 's'} couldn't be added`);
+    summaryText += ` · ${photoParts.join(', ')}`;
   }
   if (skipped || failed) {
     summaryText += ` — ${skipped} skipped, ${failed} couldn't be applied`;
@@ -446,7 +646,7 @@ function renderStep3() {
   const rows = res.rows || [];
   const createdRows = rows.filter((r) => r.result === 'created');
   const failedRows = rows.filter((r) => r.result === 'failed');
-  const photoFailRows = rows.filter((r) => (r.photosFailed || 0) > 0);
+  const photoFailSummaries = photoSummaries.filter((x) => x.photosFailed > 0);
 
   clear(content).append(
     backLink(),
@@ -465,15 +665,15 @@ function renderStep3() {
             )),
           ])
         : null,
-      imagesFailed > 0 && photoFailRows.length
+      photoFailSummaries.length
         ? el('div', { class: 'stack' }, [
             el('h3', { text: 'Photos that could not be added' }),
-            el('ul', { class: 'import-photo-fails' }, photoFailRows.flatMap((r) => {
-              const msgs = (r.photoMessages && r.photoMessages.length)
-                ? r.photoMessages
-                : [`${r.photosFailed} photo${r.photosFailed === 1 ? '' : 's'} skipped`];
-              return msgs.map((m) => el('li', { text: `${r.name}: ${m}` }));
-            })),
+            el('ul', { class: 'import-photo-fails' }, photoFailSummaries.flatMap((x) =>
+              x.photoMessages.map((m) => el('li', { text: `${x.pr.name}: ${m}` }))
+            )),
+            hasPending
+              ? el('button', { class: 'btn btn--secondary', type: 'button', text: 'Retry photos', on: { click: onRetryPhotosClick } })
+              : null,
           ])
         : null,
       createdRows.length
@@ -491,6 +691,10 @@ function renderStep3() {
       el('a', { class: 'btn', href: '/admin/products.html', text: 'Back to products' }),
     ])
   );
+}
+
+async function onRetryPhotosClick() {
+  await retryPhotos();
 }
 
 /* ---------- shared bits ---------- */

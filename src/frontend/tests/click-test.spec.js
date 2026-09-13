@@ -899,15 +899,17 @@ test.describe('admin', () => {
     { name: 'marren-front.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('marren-front-bytes') },
     { name: 'harlan-front.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('harlan-front-bytes') },
   ];
+  const MARREN_BACK_FILE = { name: 'marren-back.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('marren-back-bytes') };
+  const CATALOGUE_CSV = {
+    name: 'catalogue.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('name,price,quantity,category,photos\nMarren Wool Coat,12800,4,women,marren-front.jpg;marren-back.jpg\n'),
+  };
 
   async function gotoImportWithPhotos(page) {
     await page.goto('/admin/product-import.html');
     await expect(page.locator('#import-preview-btn')).toBeDisabled();
-    await page.setInputFiles('#import-file', {
-      name: 'catalogue.csv',
-      mimeType: 'text/csv',
-      buffer: Buffer.from('name,price,quantity,category,photos\nMarren Wool Coat,12800,4,women,marren-front.jpg;marren-back.jpg\n'),
-    });
+    await page.setInputFiles('#import-file', CATALOGUE_CSV);
     await expect(page.locator('#import-filename')).toHaveText('catalogue.csv');
     // step 1 photo picker + count
     await page.setInputFiles('#import-photos', PHOTO_FILES);
@@ -915,7 +917,27 @@ test.describe('admin', () => {
     await expect(page.locator('#import-preview-btn')).toBeEnabled();
   }
 
-  test('A17 / JOURNEY 6: CSV + photos -> review (photo status + tally) -> multipart commit -> done', async ({ page }) => {
+  /** Correlates each successful POST /admin/images upload back to its selected filename. */
+  function trackUploadedImageIds(page) {
+    const ids = {};
+    page.on('response', async (res) => {
+      const req = res.request();
+      if (req.method() !== 'POST' || res.status() !== 201) return;
+      let pathname;
+      try { pathname = new URL(res.url()).pathname; } catch { return; }
+      if (pathname !== '/api/admin/images') return;
+      const raw = req.postDataBuffer() ? req.postDataBuffer().toString('latin1') : '';
+      const m = raw.match(/name="file";\s*filename="([^"]*)"/i);
+      if (!m) return;
+      try {
+        const data = await res.json();
+        ids[m[1]] = data.id;
+      } catch { /* ignore */ }
+    });
+    return ids;
+  }
+
+  test('A17 / JOURNEY 6: CSV + photos -> review (photo status + tally) -> tiny JSON commit -> photo phase -> done', async ({ page }) => {
     await installMockApi(page, { admin: true });
     const errors = trackErrors(page);
 
@@ -926,7 +948,7 @@ test.describe('admin', () => {
 
     await gotoImportWithPhotos(page);
 
-    // preview request is multipart carrying `file` + `filename` parts
+    // preview request is multipart carrying `file` + `filename` parts (unchanged by this fix)
     const [previewReq] = await Promise.all([
       page.waitForRequest((r) => r.url().includes('/api/admin/products/import') && !r.url().includes('/commit') && r.method() === 'POST'),
       page.getByRole('button', { name: 'Preview changes' }).click(),
@@ -965,28 +987,126 @@ test.describe('admin', () => {
     const rowBroken = page.locator('.import-table tbody tr', { hasText: 'Broken Row' });
     await expect(rowBroken.locator('.import-badge')).toHaveText('Problem');
 
-    // confirm -> multipart commit with token + image parts + Idempotency-Key
+    // confirm -> tiny JSON commit, no image bytes at all, Idempotency-Key still required
     const confirm = page.getByRole('button', { name: 'Apply 5 changes' });
     await expect(confirm).toBeEnabled();
+    const imageReqs = [];
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/admin/images') imageReqs.push(r);
+    });
     const [commitReq] = await Promise.all([
       page.waitForRequest((r) => r.url().includes('/api/admin/products/import/commit') && r.method() === 'POST'),
       confirm.click(),
     ]);
-    expect(commitReq.headers()['content-type']).toContain('multipart/form-data');
+    expect(commitReq.headers()['content-type']).toContain('application/json');
     expect(commitReq.headers()['idempotency-key']).toBeTruthy();
-    const commitBody = commitReq.postDataBuffer().toString('latin1');
-    expect(commitBody).toContain('name="token"');
-    expect(commitBody).toContain('name="image"');
+    expect(JSON.parse(commitReq.postData())).toEqual({ token: expect.any(String) });
 
-    // step 3: done — "{imagesAttached} photos added" + failed photo list
+    // photo phase, driven entirely client-side: Orin (update, 2 matched) + Marren (create,
+    // 1 matched — marren-back.jpg was never selected so it's just a preview note, never
+    // attempted) each get their own POST /admin/images + PATCH /admin/products/{id}.
     await expect(page.locator('.import-result-summary')).toHaveText(
       "2 products created, 2 updated · 3 photos added — 1 skipped, 1 couldn't be applied"
     );
+    expect(imageReqs.length).toBe(3);
+    imageReqs.forEach((r) => expect(r.headers()['content-type']).toContain('multipart/form-data'));
     await expect(page.getByText('New products are drafts')).toBeVisible();
     await expect(page.locator('.import-failed')).toContainText('Harlan Leather Belt');
-    await expect(page.locator('.import-photo-fails')).toContainText('marren-back.jpg — that file was not uploaded');
+    await expect(page.locator('.import-photo-fails')).toHaveCount(0); // nothing failed this run
     await page.getByRole('link', { name: 'Back to products' }).click();
     await expect(page).toHaveURL(/admin\/products\.html/);
+
+    expect(errors).toEqual([]);
+  });
+
+  test('A17: a create row with two matched photos uploads both and attaches them via one PATCH, in CSV order', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    const errors = trackErrors(page);
+    const uploadedIds = trackUploadedImageIds(page);
+
+    await page.goto('/admin/product-import.html');
+    await page.setInputFiles('#import-file', CATALOGUE_CSV);
+    await page.setInputFiles('#import-photos', [PHOTO_FILES[2], MARREN_BACK_FILE]); // marren-front.jpg + marren-back.jpg only
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+
+    const rowMarren = page.locator('.import-table tbody tr', { hasText: 'Marren Wool Coat' });
+    await expect(rowMarren.locator('.import-photo--ok')).toHaveText('2 photos ✓');
+    await expect(rowMarren.locator('.import-photo--warn')).toHaveCount(0);
+
+    const patchPromise = page.waitForRequest((r) => r.url().includes('/api/admin/products/prod_marren') && r.method() === 'PATCH');
+    await page.getByRole('button', { name: 'Apply 5 changes' }).click();
+    const patchReq = await patchPromise;
+
+    await expect(page.locator('.import-result-summary')).toHaveText(
+      "2 products created, 2 updated · 2 photos added — 1 skipped, 1 couldn't be applied"
+    );
+    const patchBody = JSON.parse(patchReq.postData());
+    expect(patchBody.imageIds).toEqual([uploadedIds['marren-front.jpg'], uploadedIds['marren-back.jpg']]);
+    expect(patchBody.primaryImageId).toBe(uploadedIds['marren-front.jpg']);
+    expect(patchBody.imageIds.every((id) => typeof id === 'string' && id)).toBe(true);
+
+    expect(errors).toEqual([]);
+  });
+
+  test('A17: an update row appends one new photo to its existing gallery without disturbing the primary', async ({ page }) => {
+    await installMockApi(page, { admin: true });
+    const errors = trackErrors(page);
+    const uploadedIds = trackUploadedImageIds(page);
+
+    await page.goto('/admin/product-import.html');
+    await page.setInputFiles('#import-file', CATALOGUE_CSV);
+    await page.setInputFiles('#import-photos', [PHOTO_FILES[0]]); // orin-front.jpg only — prod_2001 already has 2 images
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+
+    const getPromise = page.waitForRequest((r) => r.url().includes('/api/admin/products/prod_2001') && r.method() === 'GET');
+    const patchPromise = page.waitForRequest((r) => r.url().includes('/api/admin/products/prod_2001') && r.method() === 'PATCH');
+    await page.getByRole('button', { name: 'Apply 5 changes' }).click();
+    await getPromise; // existing gallery is read before appending
+    const patchReq = await patchPromise;
+
+    await expect(page.locator('.import-result-summary')).toHaveText(
+      "2 products created, 2 updated · 1 photo added — 1 skipped, 1 couldn't be applied"
+    );
+    const patchBody = JSON.parse(patchReq.postData());
+    expect(patchBody.imageIds).toEqual(['img_orin1', 'img_orin2', uploadedIds['orin-front.jpg']]);
+    expect(patchBody.primaryImageId).toBe('img_orin1'); // unchanged — the product already had a primary
+
+    expect(errors).toEqual([]);
+  });
+
+  test('A17: a failed photo upload does not block the row — the other photo still attaches, and Retry photos is offered', async ({ page }) => {
+    await installMockApi(page, { admin: true, imageUploadFailNames: ['orin-back.jpg'] });
+    const errors = trackErrors(page);
+    const uploadedIds = trackUploadedImageIds(page);
+    let getCount = 0;
+    page.on('request', (r) => {
+      if (r.url().includes('/api/admin/products/prod_2001') && r.method() === 'GET') getCount += 1;
+    });
+
+    await gotoImportWithPhotos(page);
+    await page.getByRole('button', { name: 'Preview changes' }).click();
+
+    const patchPromise = page.waitForRequest((r) => r.url().includes('/api/admin/products/prod_2001') && r.method() === 'PATCH');
+    await page.getByRole('button', { name: 'Apply 5 changes' }).click();
+    const patchReq = await patchPromise;
+
+    // the row still commits its other photo — a failed image never blocks the row
+    const patchBody = JSON.parse(patchReq.postData());
+    expect(patchBody.imageIds).toEqual(['img_orin1', 'img_orin2', uploadedIds['orin-front.jpg']]);
+    expect(patchBody.primaryImageId).toBe('img_orin1');
+
+    await expect(page.locator('.import-result-summary')).toHaveText(
+      "2 products created, 2 updated · 2 photos added, 1 photo couldn't be added — 1 skipped, 1 couldn't be applied"
+    );
+    await expect(page.locator('.import-photo-fails')).toContainText('Orin Linen Dress: orin-back.jpg —');
+    const retryBtn = page.getByRole('button', { name: 'Retry photos' });
+    await expect(retryBtn).toBeVisible();
+    expect(getCount).toBe(1);
+
+    // retry only retries the outstanding photo — no duplicate fetch of the existing gallery
+    await retryBtn.click();
+    await expect(page.getByRole('button', { name: 'Retry photos' })).toBeVisible(); // still fails — mock keeps rejecting it
+    expect(getCount).toBe(1);
 
     expect(errors).toEqual([]);
   });

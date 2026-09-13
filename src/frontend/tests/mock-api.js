@@ -573,11 +573,32 @@ export async function installMockApi(page, opts = {}) {
       const p = PRODUCTS.find((x) => x.id === id) || (id === 'prod_new' ? { ...PRODUCTS[0], id: 'prod_new', slug: 'test-sample-product', name: 'Test Sample Product' } : null);
       return p ? json(200, { ...p, related: [], previewStatus: 'draft' }) : err(404, 'not_found', 'No such product.');
     }
-    if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'GET') { const p = PRODUCTS.find((x) => x.id === path.split('/')[3]); return p ? json(200, { ...p, status: 'published', basePrice: p.price }) : err(404, 'not_found', 'No such product.'); }
+    if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'GET') {
+      const p = PRODUCTS.find((x) => x.id === path.split('/')[3]);
+      if (!p) return err(404, 'not_found', 'No such product.');
+      const primary = (p.images || []).find((im) => im.isPrimary);
+      return json(200, { ...p, status: 'published', basePrice: p.price, primaryImageId: primary ? primary.id : null });
+    }
     if (path === '/admin/products' && method === 'POST') return json(201, { id: 'prod_new', slug: body.slug, status: body.status, ...body });
     if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'PATCH') return json(200, { id: path.split('/')[3], ...body });
     if (path.match(/^\/admin\/products\/[^/]+$/) && method === 'DELETE') return json(200, { id: path.split('/')[3], status: 'archived' });
-    if (path === '/admin/images' && method === 'POST') return json(201, { ...IMG(`img_${Date.now()}`, ''), thumbBytes: 41213, fullBytes: 214880 });
+    if (path === '/admin/images' && method === 'POST') {
+      // A17 photo phase: each matched photo uploads individually (sequenced / light
+      // concurrency, see productImport.js runPhotoPhase()). Ids increment so tests can
+      // assert PATCH imageIds ordering deterministically. opts.imageUploadFailNames lets a
+      // test force a specific selected file to fail (500) without touching the others.
+      const rawBuf = typeof req.postDataBuffer === 'function' ? req.postDataBuffer() : null;
+      const raw = rawBuf ? rawBuf.toString('latin1') : (req.postData() || '');
+      const filenameMatch = raw.match(/name="file";\s*filename="([^"]*)"/i);
+      const uploadedName = filenameMatch ? filenameMatch[1] : '';
+      const failNames = (opts.imageUploadFailNames || []).map((n) => n.toLowerCase());
+      if (failNames.includes(uploadedName.toLowerCase())) {
+        return err(500, 'internal_error', `Could not process ${uploadedName || 'that photo'}.`);
+      }
+      state.imageUploadCount = (state.imageUploadCount || 0) + 1;
+      const id = `img_up_${state.imageUploadCount}`;
+      return json(201, { ...IMG(id, body.alt || ''), thumbBytes: 41213, fullBytes: 214880 });
+    }
 
     // ---- A17 product bulk import / export ----
     if (path === '/admin/products/export' && method === 'GET') {
@@ -722,14 +743,14 @@ export async function installMockApi(page, opts = {}) {
       const idemKey = req.headers()['idempotency-key'];
       if (!idemKey) return err(422, 'validation_error', 'Missing Idempotency-Key header.');
       const ctype = req.headers()['content-type'] || '';
-      const multipart = ctype.includes('multipart/form-data');
-      const rawBuf = typeof req.postDataBuffer === 'function' ? req.postDataBuffer() : null;
-      const raw = rawBuf ? rawBuf.toString('latin1') : (req.postData() || '');
-      const token = multipart
-        ? (raw.match(/name="token"\r?\n\r?\n([^\r\n]+)/) || [])[1]
-        : (body && body.token);
-      const imageParts = multipart ? (raw.match(/name="image"/g) || []).length : 0;
-      if (typeof token !== 'string') return err(422, 'validation_error', 'No token (JSON body or multipart part).');
+      // A17 fix: the commit is ALWAYS application/json now — no photos ride along (see
+      // api.js commitImport / productImport.js runPhotoPhase). Multipart here would mean
+      // the frontend regressed back to the old body-size-ceiling-blowing behaviour.
+      if (ctype.includes('multipart/form-data')) {
+        return err(422, 'validation_error', 'Mock only accepts a JSON commit — this frontend must never send photos on /commit any more.');
+      }
+      const token = body && body.token;
+      if (typeof token !== 'string') return err(422, 'validation_error', 'No token in JSON body.');
       if (opts.importCommitTooLarge) {
         return err(413, 'import_batch_too_large', 'Import fewer photos at a time — split the CSV into smaller batches');
       }
@@ -741,21 +762,17 @@ export async function installMockApi(page, opts = {}) {
       }
       state.importUsed = true;
       state.importIdemKey = idemKey;
-      // With photos: Orin gets 2, Marren gets 1 matched + 1 failed (marren-back.jpg not uploaded).
-      const withPhotos = imageParts > 0;
-      const orinPhotos = withPhotos ? 2 : 0;
-      const marrenAttached = withPhotos ? 1 : 0;
-      const marrenFailed = withPhotos ? 1 : 0;
+      // photosAttached/photosFailed are always 0 here — no images were ever sent to this
+      // endpoint. The frontend computes its own photo tallies client-side, from the
+      // separate POST /admin/images + PATCH /admin/products/{id} calls that follow.
       return json(200, {
         created: 2,
         updated: 2,
         skipped: 1,
         failed: 1,
-        imagesAttached: orinPhotos + marrenAttached,
-        imagesFailed: marrenFailed,
         rows: [
-          { row: 2, name: 'Orin Linen Dress', result: 'updated', productId: 'prod_2001', message: null, photosAttached: orinPhotos, photosFailed: 0, photoMessages: [] },
-          { row: 3, name: 'Marren Wool Coat', result: 'created', productId: 'prod_marren', message: 'Created as a draft — add photos and publish', photosAttached: marrenAttached, photosFailed: marrenFailed, photoMessages: marrenFailed ? ['marren-back.jpg — that file was not uploaded'] : [] },
+          { row: 2, name: 'Orin Linen Dress', result: 'updated', productId: 'prod_2001', message: null, photosAttached: 0, photosFailed: 0, photoMessages: [] },
+          { row: 3, name: 'Marren Wool Coat', result: 'created', productId: 'prod_marren', message: 'Created as a draft — add photos and publish', photosAttached: 0, photosFailed: 0, photoMessages: [] },
           { row: 4, name: 'Suede Weekender', result: 'created', productId: 'prod_suede', message: 'Created as a draft — add photos and publish', photosAttached: 0, photosFailed: 0, photoMessages: [] },
           { row: 5, name: 'Sample Multi Bag', result: 'updated', productId: 'prod_multibag', message: null, photosAttached: 0, photosFailed: 0, photoMessages: [] },
           { row: 6, name: 'Harlan Leather Belt', result: 'failed', productId: null, message: 'Someone edited this product while you were reviewing — re-export and try again', photosAttached: 0, photosFailed: 0, photoMessages: [] },

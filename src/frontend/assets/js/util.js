@@ -64,6 +64,28 @@ export function pluralize(n, singular, plural) {
   return n === 1 ? singular : plural || singular + 's';
 }
 
+/**
+ * Run `fn` over `items` with at most `limit` in flight at once. Used by the bulk-import
+ * photo phase (productImport.js) to upload a few images at a time instead of firing every
+ * request for a row simultaneously. Order of `results` matches `items`; order of
+ * *completion* is not guaranteed — callers that need CSV order (e.g. which uploaded id is
+ * primary) should read it back off the per-item state they passed in, not off `results`.
+ */
+export async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 export function setPageMeta({ title, description, canonicalPath, noindex }) {
   if (title) document.title = title;
   if (description) {

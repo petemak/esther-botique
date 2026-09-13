@@ -235,19 +235,17 @@ export const api = {
     },
     /**
      * Step 2 — apply a previously-returned plan. Idempotency-Key required (same as POST /orders).
-     * No photos in the plan → plain JSON `{ token }`. Photos in the plan → `multipart/form-data`
-     * with a `token` text part + one binary `image` part per selected File (send them all;
-     * the backend ignores any not referenced by a committing row).
+     * Always `application/json { token }` — never multipart, even when the plan carries
+     * photos. Netlify's rewrite-proxy to the Fly backend has a hard body-size ceiling
+     * (~8-9 MB) on a request like this one; a real bulk-photo import (7+ phone photos)
+     * routinely totals 15-40 MB and blew straight through it when photos rode along with
+     * the commit. Photos are now uploaded one at a time via `uploadImage` and attached
+     * with `updateProduct({ imageIds, primaryImageId })` *after* this call succeeds — see
+     * `runPhotoPhase()` in `pages/admin/productImport.js`. This keeps the commit request
+     * tiny and fast no matter how many photos were selected.
      */
-    commitImport: (token, idempotencyKey, photoFiles) => {
-      if (photoFiles && photoFiles.length) {
-        const fd = new FormData();
-        fd.append('token', token);
-        photoFiles.forEach((f) => fd.append('image', f));
-        return request('POST', '/admin/products/import/commit', { formData: fd, idempotencyKey });
-      }
-      return post('/admin/products/import/commit', { token }, { idempotencyKey });
-    },
+    commitImport: (token, idempotencyKey) =>
+      post('/admin/products/import/commit', { token }, { idempotencyKey }),
     deleteImage: (id) => del(`/admin/images/${encodeURIComponent(id)}`),
 
     updateVariant: (productId, variantId, body) =>

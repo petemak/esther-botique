@@ -47,5 +47,9 @@ primary_region = "jnb"
     grace_period = "40s"
 
 [[vm]]
-  size = "shared-cpu-1x"
+  # Bumped from shared-cpu-1x 2026-09-12: image re-encoding (bulk product-photo
+  # import, admin uploads) is CPU-bound, and a single shared vCPU was causing
+  # slow/serialized processing under concurrent photo uploads — occasionally
+  # slow enough to trip Netlify's proxy timeout (504) on the request in flight.
+  size = "shared-cpu-2x"
   memory = "1gb"
