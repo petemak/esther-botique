@@ -9,3 +9,9 @@
 (defn config
   ([] @state)
   ([& ks] (get-in @state ks)))
+
+(defn mpesa-online?
+  "True unless MPESA_ONLINE_ENABLED turned online M-Pesa off. An absent key
+   (e.g. a bare test config) means enabled — the documented default."
+  []
+  (not (false? (config :mpesa-online-enabled?))))

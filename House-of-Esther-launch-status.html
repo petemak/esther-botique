@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>House of Esther — Store Status</title>
+<style>
+  :root {
+    --aubergine: #3b1a3f;
+    --orchid: #a8478f;
+    --blush: #f7f0f6;
+    --ink: #2a2230;
+    --muted: #6d6275;
+    --line: #e6dce8;
+    --ok: #2e7d5b;
+    --warn: #b36b00;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--blush); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    background: var(--aubergine); color: #fff; padding: 40px 20px 48px; text-align: center;
+  }
+  header .brand { letter-spacing: .18em; text-transform: uppercase; font-size: 13px; opacity: .8; }
+  header h1 { margin: 8px 0 6px; font-size: 30px; font-weight: 600; }
+  header p { margin: 0; opacity: .85; }
+  .status-pill {
+    display: inline-block; margin-top: 18px; padding: 6px 16px; border-radius: 999px;
+    background: #e5f4ec; color: var(--ok); font-weight: 600; font-size: 14px;
+  }
+  main { max-width: 760px; margin: -24px auto 48px; padding: 0 16px; }
+  section {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 24px; margin-bottom: 18px;
+  }
+  h2 { margin: 0 0 12px; font-size: 19px; color: var(--aubergine); }
+  .links { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 600px) { .links { grid-template-columns: 1fr; } }
+  .link-card {
+    display: block; text-decoration: none; color: inherit; border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px; background: #fff;
+  }
+  .link-card:hover { border-color: var(--orchid); }
+  .link-card .label { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  .link-card .title { font-size: 18px; font-weight: 600; color: var(--aubergine); margin: 4px 0; }
+  .link-card .url { font-size: 14px; color: var(--orchid); word-break: break-all; }
+  .link-card .desc { font-size: 14px; color: var(--muted); margin-top: 8px; }
+  ul { margin: 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .check li { list-style: none; position: relative; padding-left: 8px; }
+  .check li::before { content: "✓"; color: var(--ok); font-weight: 700; position: absolute; left: -14px; }
+  .wait li { list-style: none; position: relative; padding-left: 8px; }
+  .wait li::before { content: "•"; color: var(--warn); font-weight: 700; position: absolute; left: -12px; }
+  ol li { margin: 10px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td, th { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+  .tag.ok { background: #e5f4ec; color: var(--ok); }
+  .tag.later { background: #fff1d9; color: var(--warn); }
+  .note { font-size: 14px; color: var(--muted); }
+  footer { text-align: center; font-size: 13px; color: var(--muted); padding: 0 16px 40px; }
+  code { background: var(--blush); padding: 1px 6px; border-radius: 4px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">House of Esther</div>
+  <h1>Your online store is live</h1>
+  <p>Status update &middot; 30 October 2026</p>
+  <span class="status-pill">&#9679; Live and ready for products</span>
+</header>
+
+<main>
+
+  <section>
+    <h2>Your links</h2>
+    <div class="links">
+      <a class="link-card" href="https://esther-botique.netlify.app/">
+        <div class="label">For customers</div>
+        <div class="title">The store front</div>
+        <div class="url">https://esther-botique.netlify.app</div>
+        <div class="desc">What your customers see: products, cart and checkout.</div>
+      </a>
+      <a class="link-card" href="https://esther-botique.netlify.app/admin/">
+        <div class="label">For you and your team</div>
+        <div class="title">The admin area</div>
+        <div class="url">https://esther-botique.netlify.app/admin/</div>
+        <div class="desc">Add products, manage orders and stock, and edit the store content.</div>
+      </a>
+    </div>
+    <p class="note" style="margin-top:14px">
+      Your password is already set. If you are signed out, <a href="https://esther-botique.netlify.app/admin/signin">sign in here</a>.
+      The <a href="https://esther-botique.netlify.app/admin/guide">Owner&rsquo;s Guide</a> explains every task step by step.
+    </p>
+  </section>
+
+  <section>
+    <h2>What is working today</h2>
+    <ul class="check">
+      <li>The store is online and open to the public.</li>
+      <li>You can sign in to the admin area and add products one by one, or in bulk from a spreadsheet (CSV) together with the photos.</li>
+      <li>Product photos are saved safely in cloud storage and show on the store.</li>
+      <li>Customers can browse, add items to the cart and place an order.</li>
+      <li>Delivery is available countrywide, with a delivery fee that depends on the customer's county.</li>
+      <li>You can add and manage team members (owner and staff) from the admin area.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>How customers pay</h2>
+    <p style="margin-top:0">
+      <strong>Pay on delivery only.</strong> The customer pays the rider when the order arrives, by M-Pesa or in cash.
+      Customers are not charged online, so there is nothing to reconcile before an order is delivered.
+    </p>
+    <p class="note" style="margin-bottom:0">
+      Paying with M-Pesa on the website (an automatic payment prompt on the customer's phone) is built but switched off.
+      It can be turned on later once you have a Safaricom M-Pesa business account set up.
+    </p>
+  </section>
+
+  <section>
+    <h2>Your next steps</h2>
+    <ol>
+      <li><strong>Add your products.</strong> One at a time: open <a href="https://esther-botique.netlify.app/admin/product-edit.html">Add product</a> (steps in the <a href="https://esther-botique.netlify.app/admin/guide#adding-a-product">guide</a>).
+        Many at once: use the <a href="https://esther-botique.netlify.app/admin/product-import.html">Bulk import page</a> to upload a spreadsheet and photos together (steps in the <a href="https://esther-botique.netlify.app/admin/guide#adding-a-product">guide</a>).
+        New products are saved as <em>drafts</em>.</li>
+      <li><strong>Publish them.</strong> Customers only see published products. Open your <a href="https://esther-botique.netlify.app/admin/products.html">Products list</a> to publish; several can be published at once.</li>
+      <li><strong>Review the legal pages.</strong> The Terms, Privacy and Returns pages hold placeholder wording. Check and edit them on the <a href="https://esther-botique.netlify.app/admin/legal.html">Legal documents page</a> (see the <a href="https://esther-botique.netlify.app/admin/guide#legal-documents">guide</a>) before you promote the store.</li>
+      <li><strong>Check the delivery fees</strong> customers see on the <a href="https://esther-botique.netlify.app/delivery-returns">Delivery &amp; Returns page</a>. If any should change, let us know.</li>
+      <li><strong>When orders arrive,</strong> manage them on the <a href="https://esther-botique.netlify.app/admin/orders.html">Orders page</a> (see the <a href="https://esther-botique.netlify.app/admin/guide#orders">guide</a>) and keep stock correct on the <a href="https://esther-botique.netlify.app/admin/inventory.html">Inventory page</a> (see the <a href="https://esther-botique.netlify.app/admin/guide#stock">guide</a>).</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Product photo guide</h2>
+    <table>
+      <tr><th>Details</th><td>See <a href="https://esther-botique.netlify.app/admin/guide#photo-sizes">Photo sizes and framing</a> in the guide</td></tr>
+      <tr><th>Shape</th><td>Portrait, 4:5 (for example 1600 &times; 2000 pixels)</td></tr>
+      <tr><th>Smallest advised</th><td>1200 &times; 1500 pixels</td></tr>
+      <tr><th>File size</th><td>Up to 15 MB per photo</td></tr>
+      <tr><th>Bulk upload</th><td>About 60 photos at a time works best; do more in several batches</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Still to come</h2>
+    <table>
+      <tr><th>Item</th><th>Status</th></tr>
+      <tr>
+        <td>Your own web address (for example <code>houseofesther.co.ke</code>)</td>
+        <td><span class="tag later">Later</span></td>
+      </tr>
+      <tr>
+        <td>Appearing in Google search. The store is hidden from search engines until your own web address is connected.</td>
+        <td><span class="tag later">Later</span></td>
+      </tr>
+      <tr>
+        <td>Pay with M-Pesa on the website</td>
+        <td><span class="tag later">Later</span></td>
+      </tr>
+      <tr>
+        <td>Swahili version of the store</td>
+        <td><span class="tag later">After launch</span></td>
+      </tr>
+    </table>
+    <p class="note" style="margin-bottom:0">
+      Until your own web address is set up, please share the store link directly with customers.
+    </p>
+  </section>
+
+  <section>
+    <h2>Good to know</h2>
+    <ul>
+      <li>The store link above is temporary and will change when your own web address is connected. We will let you know before that happens.</li>
+      <li>Please keep your admin password private and do not share it. Add colleagues from the <a href="https://esther-botique.netlify.app/admin/team.html">Team page</a> so each person has their own sign-in.</li>
+      <li>If something looks wrong, or you need help, reply to the person who sent you this page.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>House of Esther &middot; Nairobi, Kenya</footer>
+
+</body>
+</html>

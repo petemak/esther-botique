@@ -21,6 +21,9 @@ primary_region = "jnb"
   SESSION_COOKIE_SECURE = "true"
   TRUST_PROXY_HEADERS = "true"
   MPESA_ENV = "stub"
+  # No Daraja credentials yet -> online M-Pesa is OFF; checkout offers pay-on-delivery only.
+  # Flip to "true" (and set MPESA_ENV=production + the MPESA_* secrets) when online payments go live.
+  MPESA_ONLINE_ENABLED = "false"
   APP_BASE_URL = "https://esther-botique.netlify.app"
   # Seed/editorial image rows resolve to files served by the Netlify static
   # build at {CDN_BASE_URL}/seed/{id}-{800|2000}.jpg. Point this at the real
@@ -50,5 +53,7 @@ primary_region = "jnb"
     grace_period = "40s"
 
 [[vm]]
-  size = "shared-cpu-1x"
+  # shared-cpu-2x: image re-encoding for bulk photo import is CPU-bound; a single shared vCPU
+  # caused 504s on staging (see fly.toml).
+  size = "shared-cpu-2x"
   memory = "1gb"

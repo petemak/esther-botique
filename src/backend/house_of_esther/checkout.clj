@@ -7,7 +7,8 @@
             [house-of-esther.http.error :as err]
             [house-of-esther.http.response :as resp]
             [house-of-esther.http.validate :as v]
-            [house-of-esther.money :as money]))
+            [house-of-esther.money :as money]
+            [house-of-esther.runtime :as runtime]))
 
 (def ^:private QuoteReq
   [:map [:county v/NonBlank] [:town {:optional true} [:maybe :string]]])
@@ -23,9 +24,27 @@
                                " is out of stock"
                                (str " has only " (:quantityAvailable i) " left")))}))
 
-(defn allowed-payment-methods [zone]
-  (cond-> ["mpesa"]
-    (some :payOnDeliveryAllowed (:methods zone)) (conj "pay_on_delivery")))
+(defn allowed-payment-methods
+  "Payment methods a zone accepts. Online M-Pesa is offered only while
+   `mpesa-online?` (MPESA_ONLINE_ENABLED, default true); pay_on_delivery only
+   where some delivery method in the zone allows it."
+  ([zone] (allowed-payment-methods zone (runtime/mpesa-online?)))
+  ([zone mpesa-online?]
+   (cond-> []
+     mpesa-online?                              (conj "mpesa")
+     (some :payOnDeliveryAllowed (:methods zone)) (conj "pay_on_delivery"))))
+
+(defn payment-method-problem
+  "Pure server-side policy check for an order. `method` is the chosen delivery
+   method (with :payOnDeliveryAllowed). Returns a message string when
+   `payment-method` can't be used, else nil."
+  [payment-method method mpesa-online?]
+  (case payment-method
+    "mpesa"            (when-not mpesa-online?
+                         "Online M-Pesa isn't available right now. Please choose pay on delivery.")
+    "pay_on_delivery"  (when-not (:payOnDeliveryAllowed method)
+                         "Pay on delivery isn't available for this delivery option.")
+    "That payment method isn't available."))
 
 (defn quote-handler [{:keys [context body-params]}]
   (let [{:keys [county]} (v/validate! QuoteReq body-params)]

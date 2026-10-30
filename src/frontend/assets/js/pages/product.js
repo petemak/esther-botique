@@ -9,6 +9,7 @@ import { addToCart } from '../cart.js';
 import { openCartDrawer } from '../cart.js';
 import { currentUser } from '../auth.js';
 import { toast } from '../toast.js';
+import { copy } from '../copy.js';
 
 const slug = getParam('slug');
 const previewId = getParam('preview'); // admin draft/any-status preview (A3)
@@ -444,7 +445,7 @@ function backInStockForm() {
 function deliveryNote() {
   return el('div', { class: 'delivery-note stack' }, [
     el('p', { html: '<strong>Delivery:</strong> Nairobi next-day (KES 300). Courier to other counties, 2–6 business days.' }),
-    el('p', { html: '<strong>Payment:</strong> M-Pesa, or pay on delivery where available.' }),
+    el('p', { html: copy.productPaymentHtml }),
     el('p', { html: '14-day returns on unworn pieces. <a href="/delivery-returns.html">Delivery &amp; Returns</a>.' }),
   ]);
 }

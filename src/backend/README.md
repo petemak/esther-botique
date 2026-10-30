@@ -60,7 +60,7 @@ export SEED_ADMIN_PASSWORD='pick-a-strong-one'
 
 ```bash
 clojure -X:migrate     # apply migrations (also runs automatically on startup)
-clojure -X:seed        # demo catalogue, zones, legal docs, admin user
+clojure -X:seed        # SEED_PROFILE=demo (default): demo catalogue, zones, legal docs, admin user
 clojure -M:run         # serve on :3000
 ```
 
@@ -105,6 +105,42 @@ clojure -X:test
 - **M-Pesa** is fully server-side. The frontend never sees Safaricom. With
   `MPESA_ENV=stub` the STK push returns a synthetic `checkoutRequestId` and the
   callback endpoint can be driven manually to simulate `paid`/`failed`.
+
+## Launch switches
+
+### `MPESA_ONLINE_ENABLED` (default `true`)
+
+Master switch for online M-Pesa. Set it to `false` to run pay-on-delivery only
+(production launch before Daraja credentials exist). When off:
+
+- `POST /api/checkout/quote` returns `allowedPaymentMethods` of only
+  `["pay_on_delivery"]` (or `[]` for a zone that disallows it), never `"mpesa"`.
+- `POST /api/orders` with `paymentMethod: "mpesa"` -> `422` with
+  `error.code = "payment_method_not_allowed"`; nothing is written.
+- `POST /api/payments/mpesa/stk-push` -> the same `422`, no Daraja call.
+
+Independent of the flag, the server also rejects a `pay_on_delivery` order
+(`422 payment_method_not_allowed`) when the chosen delivery method does not allow
+it, so the zone rule is not only a client-side convenience. Unset means enabled;
+only `1`/`true`/`yes` enable it when set (a typo fails closed). Do not use
+`MPESA_ENV=stub` in production: it shows a prompt that never charges anyone.
+
+### `SEED_PROFILE` (`demo` default | `production`)
+
+`clojure -X:seed` loads one of two profiles from the same data definitions
+(`seed.clj`); an unknown value fails immediately.
+
+- `demo`: unchanged — products, variants, collections, journal, discounts, demo
+  home page, 21 images, staging admin. Re-runs upsert images and reset the admin
+  password.
+- `production`: only the 3 images the home page uses, delivery zones/methods with
+  `pay_on_delivery_allowed = true` everywhere (revisit when online M-Pesa goes
+  live), legal docs, the 7 nav categories (women, men, accessories, watches,
+  fragrance, sneakers, wigs), a minimal home page (empty editorial blocks and
+  social links, no featured collection), and the `usr_admin1` owner with
+  `must_change_password = true`. `SEED_ADMIN_PASSWORD` is still required. Every
+  insert is `ON CONFLICT DO NOTHING`, so re-running never overwrites the admin
+  account or anything the owner has since edited.
 
 ## Seed images
 

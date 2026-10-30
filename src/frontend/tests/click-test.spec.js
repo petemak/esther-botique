@@ -1280,3 +1280,257 @@ test.describe('admin', () => {
     await expect(gs).toContainText(/no email invite is sent/i);
   });
 });
+
+/* ------------------------------------------------------------------------------------
+ * Production launch: pay on delivery only + completely empty catalogue.
+ *
+ * `podOnlyBuild(page)` serves the file deploy/build-staging-frontend.sh writes into dist
+ * when FE_ONLINE_MPESA=false, so these tests exercise the real onlineMpesa:false code path
+ * (assets/js/env.js -> config.js -> copy.js) without needing a second build.
+ * ---------------------------------------------------------------------------------- */
+async function podOnlyBuild(page) {
+  await page.context().route('**/assets/js/env.js', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const ENV = { onlineMpesa: false };\n' })
+  );
+}
+
+const FORBIDDEN_PAYMENT_COPY = /\bSTK\b|pay now|prepay|approve the .* prompt|Try M-Pesa again|M-Pesa \(pay now\)|Secure M-Pesa checkout|Pay your way/i;
+
+async function addOrinToCart(page) {
+  await page.goto('/product.html?slug=orin-linen-dress');
+  await page.getByRole('button', { name: 'Sand', exact: true }).click();
+  await page.getByRole('button', { name: 'M', exact: true }).click();
+  await page.locator('#add-to-cart').click();
+  await expect(page.locator('#cart-drawer')).toBeVisible();
+}
+
+async function fillCheckoutAddress(page, { county = 'Nairobi', town = 'Kilimani' } = {}) {
+  await page.fill('#f-firstName', 'Amina');
+  await page.fill('#f-email', 'amina@example.com');
+  await page.fill('#f-phone', '+254712345123');
+  await page.fill('#f-recipientName', 'Amina W.');
+  await page.fill('#f-recipientPhone', '+254712345123');
+  await page.selectOption('#f-county', county);
+  await page.fill('#f-town', town);
+  await page.locator('#f-town').blur();
+}
+
+test.describe('production launch: pay on delivery only (onlineMpesa:false)', () => {
+  test('no page promises an STK prompt, "pay now" or prepayment', async ({ page }) => {
+    await podOnlyBuild(page);
+    await installMockApi(page);
+    const errors = trackErrors(page);
+    const bodyText = async (route) => {
+      await page.goto(route);
+      await page.waitForLoadState('networkidle');
+      return page.locator('body').innerText();
+    };
+
+    // home: trust strip + footer line + JSON-LD
+    let text = await bodyText('/');
+    expect(text).not.toMatch(FORBIDDEN_PAYMENT_COPY);
+    expect(text).toContain('M-Pesa or cash to the rider when your order arrives');
+    // the JSON-LD the page injects at runtime (the static copy in index.html is rewritten by
+    // the build script and checked against dist-prod, not here)
+    const ld = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+      return all[all.length - 1].textContent;
+    });
+    expect(ld).toContain('Cash on delivery');
+    expect(ld).not.toContain('"M-Pesa"');
+    await expect(page.locator('.site-footer')).toContainText('Pay on delivery');
+
+    // product: delivery/payment box
+    await page.goto('/product.html?slug=orin-linen-dress');
+    await expect(page.locator('.delivery-note')).toContainText('Pay on delivery — M-Pesa or cash to the rider');
+    text = await page.locator('body').innerText();
+    expect(text).not.toMatch(FORBIDDEN_PAYMENT_COPY);
+    expect(text).not.toMatch(/where available/i);
+
+    // cart: picker status + trust list
+    await addOrinToCart(page);
+    await page.goto('/cart.html');
+    await page.selectOption('#cart-county', 'Nairobi');
+    await page.fill('#cart-town', 'Kilimani');
+    await page.locator('#cart-town').blur();
+    await expect(page.getByText(/Pay on delivery — M-Pesa or cash to the rider\.$/).first()).toBeVisible();
+    text = await page.locator('body').innerText();
+    expect(text).not.toMatch(FORBIDDEN_PAYMENT_COPY);
+    expect(text).not.toMatch(/Prepay/i);
+
+    // delivery & returns, help, about, checkout
+    for (const route of ['/delivery-returns.html', '/help.html', '/about.html', '/checkout.html']) {
+      text = await bodyText(route);
+      expect(text, route).not.toMatch(FORBIDDEN_PAYMENT_COPY);
+    }
+    await page.goto('/delivery-returns.html');
+    await expect(page.locator('#view')).toContainText('you pay the rider when your order arrives');
+    await expect(page.locator('#view')).toContainText('Refunds are sent by M-Pesa');
+    await expect(page.getByRole('columnheader', { name: 'Pay on delivery' })).toHaveCount(0);
+    await page.goto('/help.html');
+    await expect(page.locator('#payment-h')).toBeVisible();
+    await expect(page.locator('#payment')).toContainText('You pay the rider when your order arrives');
+    const faq = await page.evaluate(() => document.querySelector('script[type="application/ld+json"]').textContent);
+    expect(faq).not.toMatch(/STK/);
+
+    expect(errors).toEqual([]);
+  });
+
+  test('checkout: pay on delivery is preselected, shown as one statement, and the order posts pay_on_delivery with no stk-push', async ({ page }) => {
+    await podOnlyBuild(page);
+    const state = await installMockApi(page, { podOnly: true });
+    const errors = trackErrors(page);
+    await addOrinToCart(page);
+    await page.goto('/checkout.html');
+
+    // stated up front, before the address is known, with no STK/pay-now wording
+    await expect(page.locator('#payment-options')).toContainText('Pay on delivery — M-Pesa or cash to the rider');
+    await expect(page.locator('#f-phone ~ .hint')).toHaveText('We need it to reach you about delivery.');
+
+    await fillCheckoutAddress(page);
+    await expect(page.locator('#method-options')).toContainText('Nairobi next-day');
+
+    const pay = page.locator('#payment-options');
+    await expect(pay.locator('#pay-single')).toHaveText(/Pay on delivery — M-Pesa or cash to the rider/);
+    await expect(pay.locator('input[type="radio"]')).toHaveCount(0); // not a broken one-option radio group
+    await expect(pay).not.toContainText(/not available|prepay|STK|pay now/i);
+
+    await page.locator('#agree').check();
+    await expect(page.locator('#place-order')).toBeEnabled();
+    await page.locator('#place-order').click();
+    await expect(page).toHaveURL(/order-confirmation\.html/, { timeout: 10000 });
+    await expect(page.getByText(/To pay on delivery/i).first()).toBeVisible();
+
+    const posted = state.requests.filter((r) => r.method === 'POST' && r.path === '/orders');
+    expect(posted).toHaveLength(1);
+    expect(posted[0].body.paymentMethod).toBe('pay_on_delivery');
+    expect(state.requests.some((r) => r.path === '/payments/mpesa/stk-push')).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test('checkout: a pay-on-delivery-only quote is handled the same even when the build flag is on (staging + backend flag off)', async ({ page }) => {
+    const state = await installMockApi(page, { podOnly: true });
+    await addOrinToCart(page);
+    await page.goto('/checkout.html');
+    await fillCheckoutAddress(page);
+    await expect(page.locator('#pay-single')).toContainText('Pay on delivery');
+    await expect(page.locator('#payment-options input[type="radio"]')).toHaveCount(0);
+    await expect(page.locator('#payment-options')).not.toContainText(/not available for this area/i);
+    await page.locator('#agree').check();
+    await page.locator('#place-order').click();
+    await expect(page).toHaveURL(/order-confirmation\.html/, { timeout: 10000 });
+    expect(state.requests.find((r) => r.method === 'POST' && r.path === '/orders').body.paymentMethod).toBe('pay_on_delivery');
+    expect(state.requests.some((r) => r.path === '/payments/mpesa/stk-push')).toBe(false);
+  });
+
+  test('checkout: an EMPTY allowedPaymentMethods blocks the order with a clear message', async ({ page }) => {
+    const state = await installMockApi(page, { noPayment: true });
+    await addOrinToCart(page);
+    await page.goto('/checkout.html');
+    await fillCheckoutAddress(page);
+    await expect(page.locator('#pay-none')).toBeVisible();
+    await expect(page.locator('#pay-none')).toContainText(/cannot take an order/i);
+    await expect(page.locator('#pay-none').getByRole('link', { name: 'contact us' })).toHaveAttribute('href', '/contact.html');
+    await page.locator('#agree').check();
+    await expect(page.locator('#place-order')).toBeDisabled();
+    expect(state.requests.some((r) => r.method === 'POST' && r.path === '/orders')).toBe(false);
+  });
+
+  test('flag on (staging): the original M-Pesa copy and STK option are unchanged', async ({ page }) => {
+    await installMockApi(page);
+    await page.goto('/help.html');
+    await expect(page.locator('#payment')).toContainText('we send an STK prompt');
+    await page.goto('/');
+    await expect(page.locator('.trust-strip')).toContainText('Pay your way');
+    await expect(page.locator('.site-footer')).toContainText('Pay with M-Pesa or on delivery.');
+  });
+});
+
+test.describe('production launch: empty catalogue + minimal home content', () => {
+  test('home: only the sections that have content render, nothing throws or spins', async ({ page }) => {
+    const state = await installMockApi(page, { emptyCatalogue: true });
+    const errors = trackErrors(page);
+    await page.goto('/');
+    await page.waitForSelector('.hero');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(250);
+
+    // headings that remain are exactly the ones with real content behind them
+    const h2s = await page.locator('#view h2:visible').allInnerTexts();
+    expect(h2s).toEqual(['Shop by category', 'Be first to know when new pieces land']);
+    await expect(page.locator('#view')).not.toContainText(/New In|Featured|From the Journal/);
+    await expect(page.locator('.rail')).toBeHidden();
+    await expect(page.locator('.spinner:visible')).toHaveCount(0);
+
+    // two category tiles, laid out as two (not two-of-four)
+    await expect(page.locator('.tiles .tile')).toHaveCount(2);
+    await expect(page.locator('.tiles')).toHaveClass(/tiles--2/);
+    await expect(page.locator('#view')).not.toContainText(/\bnull\b|undefined/);
+
+    // empty socialLinks: no social list in the footer
+    await expect(page.locator('#footer-social')).toBeHidden();
+    await expect(page.locator('#footer-social li')).toHaveCount(0);
+
+    // null featuredCollectionSlug must not cause a collection request
+    expect(state.requests.filter((r) => /^\/collections\//.test(r.path))).toEqual([]);
+    expect(state.requests.filter((r) => /collection=(null|undefined|)(&|$)/.test(r.query) && r.path === '/products')).toEqual([]);
+
+    // both tiles still navigate
+    await page.locator('.tiles .tile').first().click();
+    await expect(page).toHaveURL(/women\.html/);
+    expect(errors).toEqual([]);
+  });
+
+  for (const [route, name] of [['/women.html', 'category'], ['/accessories.html', 'category'], ['/new-in.html', 'New In'], ['/sale.html', 'Sale']]) {
+    test(`listing ${route} (${name}) shows the friendly empty state`, async ({ page }) => {
+      await installMockApi(page, { emptyCatalogue: true });
+      const errors = trackErrors(page);
+      await page.goto(route);
+      await expect(page.locator('#main h1')).toHaveCount(1);
+      await expect(page.locator('#view .empty-state h2')).toHaveText('Nothing here yet');
+      await expect(page.locator('#view .empty-state')).toContainText('New pieces are on their way');
+      await expect(page.locator('.product-card')).toHaveCount(0);
+      await expect(page.locator('.spinner')).toHaveCount(0);
+      await expect(page.locator('#filter-panel')).toHaveCount(0); // no empty filter panel / "0 pieces" toolbar
+      await expect(page.locator('#view')).not.toContainText(/\b0 pieces\b/);
+
+      await page.getByRole('button', { name: 'Get notified' }).click();
+      await expect(page.locator('#footer-newsletter-email')).toBeFocused();
+      await page.getByRole('link', { name: 'Back to home' }).click();
+      await expect(page).toHaveURL(/\/$/);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test('search with a term on an empty shop says no matches, without errors', async ({ page }) => {
+    await installMockApi(page, { emptyCatalogue: true });
+    const errors = trackErrors(page);
+    await page.goto('/search.html?q=dress');
+    await expect(page.locator('#view .empty-state h2')).toHaveText('No matches for that search');
+    await expect(page.locator('.spinner')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('journal listing shows an empty state', async ({ page }) => {
+    await installMockApi(page, { emptyCatalogue: true });
+    const errors = trackErrors(page);
+    await page.goto('/journal.html');
+    await expect(page.locator('#main h1')).toHaveCount(1);
+    await expect(page.locator('#view .empty-state h2')).toHaveText('Nothing here yet');
+    await expect(page.locator('#view .empty-state')).toContainText('on their way');
+    await expect(page.locator('.spinner')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('empty catalogue + pay-on-delivery build: home, listing and journal together stay clean', async ({ page }) => {
+    await podOnlyBuild(page);
+    await installMockApi(page, { emptyCatalogue: true, podOnly: true });
+    const errors = trackErrors(page);
+    for (const route of ['/', '/new-in.html', '/journal.html', '/cart.html', '/checkout.html', '/delivery-returns.html', '/help.html']) {
+      await page.goto(route);
+      await page.waitForLoadState('networkidle');
+      expect(await page.locator('body').innerText(), route).not.toMatch(FORBIDDEN_PAYMENT_COPY);
+    }
+    expect(errors).toEqual([]);
+  });
+});

@@ -13,6 +13,12 @@
 #   so a cross-origin API host would drop cookies)
 # - adds _headers with X-Robots-Tag: noindex as a second safety net
 #
+# - FE_ONLINE_MPESA=false (set by build-prod-frontend.sh while there are no Daraja
+#   credentials) builds a pay-on-delivery-only storefront: it overwrites
+#   $DIST/assets/js/env.js (never the file in src/) and rewrites the payment wording
+#   in the static HTML meta descriptions / JSON-LD so search snippets match. Unset or
+#   anything else keeps the committed default (online M-Pesa on).
+#
 # sitemap.xml is left exactly as committed: it only ever contains real
 # production-domain URLs and is never regenerated for a *.netlify.app host.
 
@@ -43,6 +49,19 @@ rsync -a \
   "$SRC"/ "$DIST"/
 
 cp "$ROOT/deploy/robots.staging.txt" "$DIST/robots.txt"
+
+# Build-time "online M-Pesa" flag (see assets/js/env.js and assets/js/copy.js).
+if [ "${FE_ONLINE_MPESA:-true}" = "false" ]; then
+  printf '%s\n' 'export const ENV = { onlineMpesa: false };' > "$DIST/assets/js/env.js"
+  # Static pages mention M-Pesa in their meta/JSON-LD; make those pay-on-delivery-only too.
+  for f in "$DIST/index.html" "$DIST/watches.html"; do
+    sed -i \
+      -e 's/Buy online with M-Pesa or pay on delivery\./Buy online and pay on delivery./g' \
+      -e 's/M-Pesa or pay on delivery, delivered across Kenya/pay on delivery, delivered across Kenya/g' \
+      -e 's/"paymentAccepted":\["M-Pesa","Cash on delivery"\]/"paymentAccepted":["Cash on delivery","M-Pesa on delivery"]/g' \
+      "$f"
+  done
+fi
 
 # Seed product/editorial photos: brand/seed-images/{id}-{2000,800}.jpg -> /seed/ on the
 # site origin. The backend returns {CDN_BASE_URL}/seed/{id}-{size}.jpg image URLs and
@@ -75,4 +94,4 @@ cat > "$DIST/_headers" <<'EOF'
   Content-Type: application/manifest+json
 EOF
 
-echo "built $DIST for $ENV_LABEL (backend origin: $BACKEND_ORIGIN)"
+echo "built $DIST for $ENV_LABEL (backend origin: $BACKEND_ORIGIN, online M-Pesa: ${FE_ONLINE_MPESA:-true})"

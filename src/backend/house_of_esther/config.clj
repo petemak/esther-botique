@@ -42,6 +42,12 @@
    :cookie-secure?  (env-bool "SESSION_COOKIE_SECURE" true)
    :trust-proxy?    (env-bool "TRUST_PROXY_HEADERS" false)
    :session-ttl-days (env-int "SESSION_TTL_DAYS" 30)
+   ;; MPESA_ONLINE_ENABLED: master switch for ONLINE M-Pesa (STK push) as a
+   ;; payment method. Default TRUE so dev/staging behave as before; set to
+   ;; "false" in production until Daraja credentials exist — then only
+   ;; pay_on_delivery is offered and accepted. Anything other than 1/true/yes
+   ;; reads as disabled (fails closed).
+   :mpesa-online-enabled? (env-bool "MPESA_ONLINE_ENABLED" true)
    :mpesa           {:mode           (env "MPESA_ENV" "stub") ; stub | sandbox | production
                      :base-url       (env "MPESA_BASE_URL" "https://sandbox.safaricom.co.ke")
                      :consumer-key   (env "MPESA_CONSUMER_KEY")
@@ -54,4 +60,6 @@
                      :callback-secret (env "MPESA_CALLBACK_SECRET")}
    :seed            {:admin-email    (env "SEED_ADMIN_EMAIL" "esther@houseofesther.co.ke")
                      :admin-name     (env "SEED_ADMIN_NAME" "Esther W.")
-                     :admin-password (env "SEED_ADMIN_PASSWORD")}})
+                     :admin-password (env "SEED_ADMIN_PASSWORD")
+                     ;; demo (default) | production — see house-of-esther.seed
+                     :profile        (env "SEED_PROFILE" "demo")}})

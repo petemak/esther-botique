@@ -853,3 +853,29 @@
 .status-badge--delivered {
   color: var(--info);
 }
+
+/* Fewer than four category tiles: keep them a sensible size and centred instead of
+   leaving empty grid columns on desktop. */
+.tiles--1,
+.tiles--2,
+.tiles--3 {
+  margin-inline: auto;
+}
+.tiles--1 {
+  max-width: 20rem;
+}
+@media (min-width: 48rem) {
+  .tiles--2 {
+    grid-template-columns: repeat(2, 1fr);
+    max-width: 42rem;
+  }
+  .tiles--3 {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 62rem;
+  }
+}
+@media (max-width: 47.99rem) {
+  .tiles--1 {
+    grid-template-columns: 1fr;
+  }
+}

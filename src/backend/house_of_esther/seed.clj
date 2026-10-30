@@ -1,6 +1,19 @@
 (ns house-of-esther.seed
-  "Development / demo seed data. Run with:  clojure -X:seed
+  "Seed data. Run with:  clojure -X:seed
    Requires SEED_ADMIN_PASSWORD in the environment — no secrets are hardcoded.
+
+   SEED_PROFILE selects what is loaded (unknown value -> fail fast):
+     demo        (default) the full demo shop — products, collections, journal,
+                 discounts, demo home page. Re-runnable on staging: refreshes
+                 image rows and RESETS the staging admin's password.
+     production  a real shop's skeleton only: the 3 images the home page uses,
+                 delivery zones (pay-on-delivery everywhere), legal docs, the 7
+                 nav categories, a minimal home page, and the admin user (must
+                 change password at first sign-in). No products or demo content.
+                 Every insert is ON CONFLICT DO NOTHING, so a re-run can never
+                 overwrite anything the owner has since edited.
+   Both profiles share the data definitions below; only what is selected and
+   the conflict policy differ.
 
    IMAGES: real photographs sourced from Pexels (Pexels License — free for
    commercial use, no attribution required). Per-image source page, photographer
@@ -12,25 +25,36 @@
    reuse another product's image id (e.g. the draft Nia jacket -> img_sena1);
    those now resolve to a real photo."
   (:require [buddy.hashers :as hashers]
+            [clojure.string :as str]
             [clojure.tools.logging :as log]
             [house-of-esther.config :as config]
             [house-of-esther.db :as db]
             [house-of-esther.migrate :as migrate]))
 
-(defn- img! [conn cdn {:keys [id alt width height full-bytes thumb-bytes]}]
-  ;; upsert: re-seeding refreshes alt / dimensions / byte sizes when seed images
-  ;; are re-sourced, without a full DB reset. URLs are derived from id + cdn.
-  (db/exec! conn ["insert into images (id, alt, thumb_url, full_url, width, height, thumb_bytes, full_bytes)
-                   values (?,?,?,?,?,?,?,?)
-                   on conflict (id) do update set
-                     alt = excluded.alt,
-                     thumb_url = excluded.thumb_url,
-                     full_url = excluded.full_url,
-                     width = excluded.width,
-                     height = excluded.height,
-                     thumb_bytes = excluded.thumb_bytes,
-                     full_bytes = excluded.full_bytes"
-                  id alt
+(def ^:private upsert-image-sql
+  ;; demo: re-seeding refreshes alt / dimensions / byte sizes when seed images
+  ;; are re-sourced, without a full DB reset.
+  "insert into images (id, alt, thumb_url, full_url, width, height, thumb_bytes, full_bytes)
+   values (?,?,?,?,?,?,?,?)
+   on conflict (id) do update set
+     alt = excluded.alt,
+     thumb_url = excluded.thumb_url,
+     full_url = excluded.full_url,
+     width = excluded.width,
+     height = excluded.height,
+     thumb_bytes = excluded.thumb_bytes,
+     full_bytes = excluded.full_bytes")
+
+(def ^:private keep-image-sql
+  ;; production: never touch an image row that already exists
+  "insert into images (id, alt, thumb_url, full_url, width, height, thumb_bytes, full_bytes)
+   values (?,?,?,?,?,?,?,?)
+   on conflict (id) do nothing")
+
+(defn- img!
+  "URLs are derived from id + cdn."
+  [conn cdn sql {:keys [id alt width height full-bytes thumb-bytes]}]
+  (db/exec! conn [sql id alt
                   (str cdn "/seed/" id "-800.jpg")
                   (str cdn "/seed/" id "-2000.jpg")
                   width height thumb-bytes full-bytes]))
@@ -224,19 +248,38 @@
    ["rest_of_kenya" "Rest of Kenya" ["Kilifi" "Kwale" "Garissa" "Isiolo" "Marsabit" "Turkana" "Wajir" "Mandera" "Narok" "Kajiado" "Bomet" "Migori" "Homa Bay" "Siaya" "Busia" "Bungoma" "Trans Nzoia" "Uasin Gishu" "Elgeyo-Marakwet" "Nandi" "Baringo" "Laikipia" "Nyandarua" "Kirinyaga" "Murang'a" "Kiambu" "Embu" "Tharaka-Nithi" "Meru" "Kitui" "Makueni" "Taita-Taveta" "Lamu" "Tana River" "Samburu" "West Pokot" "Vihiga" "Nyamira" "Kisii"] 3
     [["upcountry_courier" "Upcountry courier" 650 "3-6 business days" false 1]]]])
 
+(defn- pod-everywhere
+  "Production: pay-on-delivery is the ONLY payment method at launch, so every
+   delivery method in every zone allows it (including the upcountry one, which
+   the demo data leaves false). Same fees/ETAs. Revisit when online M-Pesa goes
+   live (MPESA_ONLINE_ENABLED) — the owner can then restrict zones again."
+  [zones]
+  (mapv (fn [[code label counties ord methods]]
+          [code label counties ord
+           (mapv (fn [[mcode mlabel fee eta _pod mord]] [mcode mlabel fee eta true mord]) methods)])
+        zones))
+
 (def ^:private legal-docs
   [["terms-of-sale" 4 "2026-07-01" "Terms of Sale"
     "<h2>1. These terms</h2><p>These Terms of Sale govern your purchase of goods from House of Esther.</p><h2>2. Orders</h2><p>An order is accepted when we confirm it and payment is received or, for pay-on-delivery, when we dispatch it.</p><h2>3. Pricing</h2><p>Prices are in Kenyan shillings and include VAT where applicable.</p>"]
    ["returns" 2 "2026-05-01" "Returns Policy"
     "<h2>Returns</h2><p>You may return unworn items with tags within 14 days of delivery for an exchange or refund, less the original delivery fee.</p><h2>Faulty items</h2><p>We cover return delivery for faulty or incorrect items.</p>"]
    ["privacy" 3 "2026-03-15" "Privacy Policy"
-    "<h2>What we collect</h2><p>Contact and delivery details, order history, and payment confirmations from Safaricom. We never store card or M-Pesa PINs.</p>"]])
+    "<h2>What we collect</h2><p>Contact and delivery details, order history, and payment confirmations from Safaricom. We never store card or M-Pesa PINs.</p>"]
+   ;; older versions so historical acceptance records stay resolvable
+   ["terms-of-sale" 3 "2026-02-01" "Terms of Sale"
+    "<h2>1. These terms</h2><p>Superseded version.</p>"]
+   ["returns" 1 "2026-02-01" "Returns Policy"
+    "<h2>Returns</h2><p>Superseded version.</p>"]])
+
+(def ^:private hero
+  {:headline "Style worth the wait"
+   :subcopy "Curated pieces, honest sizing, delivered to your door."
+   :ctaLabel "Shop new in" :ctaHref "/new-in" :imageId "img_hero1"})
 
 (def ^:private home-content
   {:announcement {:enabled true :text "Delivered countrywide. Pay with M-Pesa or on delivery." :href "/delivery-returns"}
-   :hero {:headline "Style worth the wait"
-          :subcopy "Curated pieces, honest sizing, delivered to your door."
-          :ctaLabel "Shop new in" :ctaHref "/new-in" :imageId "img_hero1"}
+   :hero hero
    :categoryTiles [{:label "Women" :href "/women" :imageId "img_cat_women"}
                    {:label "Accessories" :href "/accessories" :imageId "img_cat_accessories"}
                    {:label "Home" :href "/home" :imageId "img_cat_home"}]
@@ -246,16 +289,88 @@
    :socialLinks [{:platform "instagram" :url "https://instagram.com/houseofesther"}
                  {:platform "tiktok" :url "https://tiktok.com/@houseofesther"}]})
 
+;; --- production-only definitions ---------------------------------------------
+
+(def ^:private production-image-ids
+  "The only images the production home page references."
+  ["img_hero1" "img_cat_women" "img_cat_accessories"])
+
+(def ^:private production-categories
+  "The 7 top-level categories the storefront nav uses, in nav order. No
+   subcategories; images only where the home page tiles use them."
+  [["women" "Women" "Clothing for every day and every occasion." "img_cat_women" nil 1]
+   ["men" "Men" "Clothing and essentials for men." nil nil 2]
+   ["accessories" "Accessories" "Bags, jewellery and finishing touches." "img_cat_accessories" nil 3]
+   ["watches" "Watches" "Watches for everyday wear and gifting." nil nil 4]
+   ["fragrance" "Fragrance" "Perfumes and body scents." nil nil 5]
+   ["sneakers" "Sneakers" "Sneakers for every day." nil nil 6]
+   ["wigs" "Wigs" "Wigs and hair pieces." nil nil 7]])
+
+(def ^:private production-home-content
+  "A minimal launch home page: empty editorial/social sections and no featured
+   collection (the storefront tolerates all three being empty); the owner fills
+   them in from the admin."
+  {:announcement {:enabled true :text "Delivered countrywide. Pay on delivery." :href "/delivery-returns"}
+   :hero hero
+   :categoryTiles [{:label "Women" :href "/women" :imageId "img_cat_women"}
+                   {:label "Accessories" :href "/accessories" :imageId "img_cat_accessories"}]
+   :editorialBlocks []
+   :featuredCollectionSlug nil
+   :socialLinks []})
+
 (def ^:private discounts
   [["WELCOME10" "percent" 10 3000 500 1 [] "2026-01-01T00:00:00Z" "2026-12-31T23:59:59Z" true]
    ["FREESHIP" "free_delivery" 0 5000 nil nil [] "2026-01-01T00:00:00Z" "2026-12-31T23:59:59Z" true]])
 
-(defn seed! [conn cfg]
-  (let [cdn (:cdn-base-url cfg)]
-    (doseq [im images] (img! conn cdn im)))
-  (doseq [[slug label desc img parent ord] categories]
+;; --- inserts shared by both profiles -----------------------------------------
+
+(defn- insert-categories! [conn cats]
+  (doseq [[slug label desc img parent ord] cats]
     (db/exec! conn ["insert into categories (slug, label, description, image_id, parent_slug, sort_order)
-                     values (?,?,?,?,?,?) on conflict (slug) do nothing" slug label desc img parent ord]))
+                     values (?,?,?,?,?,?) on conflict (slug) do nothing" slug label desc img parent ord])))
+
+(defn- insert-zones! [conn zones]
+  (doseq [[code label counties ord methods] zones]
+    (db/exec! conn ["insert into delivery_zones (code, label, counties, sort_order) values (?,?,?,?)
+                     on conflict (code) do nothing" code label (vec counties) ord])
+    (doseq [[mcode mlabel fee eta pod mord] methods]
+      (db/exec! conn ["insert into delivery_methods (code, zone_code, label, fee_amount, eta, pay_on_delivery_allowed, sort_order)
+                       values (?,?,?,?,?,?,?) on conflict (code) do nothing"
+                      mcode code mlabel fee eta pod mord]))))
+
+(defn- insert-legal-docs! [conn docs]
+  (doseq [[dt v eff title body] docs]
+    (db/exec! conn ["insert into legal_documents (doc_type, version, effective_date, title, body_html)
+                     values (?,?,?::date,?,?) on conflict (doc_type, version) do nothing" dt v eff title body])))
+
+(defn- admin-user!
+  "The owner account — password strictly from the environment. `upsert?`
+   (demo) resets the account on every run; otherwise (production) an existing
+   row is left completely alone and a new one must change its password at first
+   sign-in."
+  [conn cfg {:keys [upsert?]}]
+  (let [{:keys [admin-email admin-name admin-password]} (:seed cfg)]
+    (when (str/blank? admin-password)
+      (throw (ex-info "SEED_ADMIN_PASSWORD must be set to seed the admin user" {})))
+    (db/exec! conn [(str "insert into admin_users (id, name, email, password_hash, role, status, must_change_password)
+                          values ('usr_admin1', ?, ?, ?, 'owner', 'active', ?)
+                          on conflict "
+                         (if upsert?
+                           "(id) do update set
+                              password_hash = excluded.password_hash,
+                              name = excluded.name,
+                              role = 'owner',
+                              status = 'active',
+                              must_change_password = false"
+                           "do nothing"))
+                    admin-name admin-email (hashers/derive admin-password) (not upsert?)])))
+
+;; --- profiles -----------------------------------------------------------------
+
+(defn- seed-demo! [conn cfg]
+  (let [cdn (:cdn-base-url cfg)]
+    (doseq [im images] (img! conn cdn upsert-image-sql im)))
+  (insert-categories! conn categories)
   (doseq [p products] (product! conn p))
   (doseq [[slug title desc img rule] collections]
     (db/exec! conn ["insert into collections (slug, title, description, hero_image_id, rule)
@@ -265,23 +380,8 @@
                      values (?,?,?,?,?,?,?,?,?,?, 'published', now()) on conflict (slug) do nothing"
                     slug title excerpt tag cover hero body (vec shop) (vec related)
                     {:title (str title " — The Journal — House of Esther") :description excerpt}]))
-  (doseq [[code label counties ord methods] zones]
-    (db/exec! conn ["insert into delivery_zones (code, label, counties, sort_order) values (?,?,?,?)
-                     on conflict (code) do nothing" code label (vec counties) ord])
-    (doseq [[mcode mlabel fee eta pod mord] methods]
-      (db/exec! conn ["insert into delivery_methods (code, zone_code, label, fee_amount, eta, pay_on_delivery_allowed, sort_order)
-                       values (?,?,?,?,?,?,?) on conflict (code) do nothing"
-                      mcode code mlabel fee eta pod mord])))
-  (doseq [[dt v eff title body] legal-docs]
-    (db/exec! conn ["insert into legal_documents (doc_type, version, effective_date, title, body_html)
-                     values (?,?,?::date,?,?) on conflict (doc_type, version) do nothing" dt v eff title body]))
-  ;; a couple of older versions so historical acceptance records stay resolvable
-  (db/exec! conn ["insert into legal_documents (doc_type, version, effective_date, title, body_html)
-                   values ('terms-of-sale', 3, '2026-02-01', 'Terms of Sale', '<h2>1. These terms</h2><p>Superseded version.</p>')
-                   on conflict do nothing"])
-  (db/exec! conn ["insert into legal_documents (doc_type, version, effective_date, title, body_html)
-                   values ('returns', 1, '2026-02-01', 'Returns Policy', '<h2>Returns</h2><p>Superseded version.</p>')
-                   on conflict do nothing"])
+  (insert-zones! conn zones)
+  (insert-legal-docs! conn legal-docs)
   (db/exec! conn ["insert into home_content (id, data) values (1, ?)
                    on conflict (id) do update set data = excluded.data" home-content])
   (doseq [[code type v min tot per cats starts ends active] discounts]
@@ -289,25 +389,46 @@
                                             eligible_categories, starts_at, ends_at, active)
                      values (?,?,?,?,?,?,?,?::timestamptz,?::timestamptz,?) on conflict (code) do nothing"
                     code type v min tot per (vec cats) starts ends active]))
-  ;; admin user — password strictly from the environment
-  (let [{:keys [admin-email admin-name admin-password]} (:seed cfg)]
-    (when-not admin-password
-      (throw (ex-info "SEED_ADMIN_PASSWORD must be set to seed the admin user" {})))
-    (db/exec! conn ["insert into admin_users (id, name, email, password_hash, role, status, must_change_password)
-                     values ('usr_admin1', ?, ?, ?, 'owner', 'active', false)
-                     on conflict (id) do update set
-                       password_hash = excluded.password_hash,
-                       name = excluded.name,
-                       role = 'owner',
-                       status = 'active',
-                       must_change_password = false"
-                    admin-name admin-email (hashers/derive admin-password)])))
+  (admin-user! conn cfg {:upsert? true}))
+
+(defn- seed-production! [conn cfg]
+  (let [cdn (:cdn-base-url cfg)
+        wanted (set production-image-ids)]
+    (doseq [im images :when (contains? wanted (:id im))]
+      (img! conn cdn keep-image-sql im)))
+  (insert-categories! conn production-categories)
+  ;; pay-on-delivery everywhere: the only payment method at launch
+  (insert-zones! conn (pod-everywhere zones))
+  (insert-legal-docs! conn legal-docs)
+  (db/exec! conn ["insert into home_content (id, data) values (1, ?)
+                   on conflict (id) do nothing" production-home-content])
+  (admin-user! conn cfg {:upsert? false}))
+
+(def ^:private profiles
+  {"demo" seed-demo!
+   "production" seed-production!})
+
+(defn- profile-fn
+  "Resolve the SEED_PROFILE name, failing fast on anything unknown (never
+   silently fall back to demo — that would load fake data into a real shop)."
+  [cfg]
+  (let [profile (or (get-in cfg [:seed :profile]) "demo")]
+    (or (get profiles profile)
+        (throw (ex-info (str "Unknown SEED_PROFILE '" profile "' — expected one of: "
+                             (str/join ", " (sort (keys profiles))))
+                        {:profile profile})))))
+
+(defn seed! [conn cfg]
+  ((profile-fn cfg) conn cfg))
 
 (defn -main [& _]
-  (let [cfg (config/load-config)]
+  (let [cfg (config/load-config)
+        _   (profile-fn cfg) ; fail on a bad SEED_PROFILE before touching the database
+        profile (get-in cfg [:seed :profile])]
     (db/start-pool! cfg)
     (migrate/migrate! (:database-url cfg))
+    (log/info "seeding with profile" profile)
     (db/with-tx [conn] (seed! conn cfg))
     (db/stop-pool!)
-    (log/info "seed complete")
+    (log/info "seed complete, profile" profile)
     (shutdown-agents)))

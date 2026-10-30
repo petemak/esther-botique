@@ -1,5 +1,6 @@
 import { el, clear } from '../dom.js';
 import { injectJsonLd } from '../util.js';
+import { copy } from '../copy.js';
 import { bootStorefront, view } from './_boot.js';
 
 bootStorefront({ active: '' });
@@ -14,11 +15,7 @@ const TOPICS = [
   },
   {
     topic: 'Payment',
-    qa: [
-      ['How does M-Pesa payment work?', 'At checkout you choose M-Pesa, we send an STK prompt to your phone, and you enter your PIN. Your order confirms automatically once payment clears.'],
-      ['What is pay on delivery?', 'Where available for your area, you pay the rider in cash or by M-Pesa when the order arrives. It shows as an option at checkout only if your location allows it.'],
-      ['Is my payment secure?', 'We never see or store your M-Pesa PIN. Payment is handled directly between you and Safaricom.'],
-    ],
+    qa: copy.helpPaymentQA,
   },
   {
     topic: 'Delivery',

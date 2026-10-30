@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { el, clear } from '../dom.js';
 import { formatMoney } from '../money.js';
+import { copy } from '../copy.js';
 import { bootStorefront, view } from './_boot.js';
 
 bootStorefront({ active: '' });
@@ -15,17 +16,16 @@ async function render() {
       el('p', { class: 'lede', text: 'How we get your order to you, what it costs, and how to send something back.' }),
       el('h2', { text: 'Delivery' }),
       el('div', { id: 'zones-table' }, [el('div', { class: 'spinner' })]),
-      el('p', { text: 'You get a tracking link by SMS and email the moment your order is dispatched. Timeframes are business days and start once payment clears (or once the order is confirmed, for pay on delivery).' }),
+      el('p', { text: copy.deliveryTimeframes }),
 
       el('h2', { text: 'Payment' }),
-      el('p', { html: '<strong>M-Pesa:</strong> choose M-Pesa at checkout, approve the STK prompt on your phone, and your order confirms automatically.' }),
-      el('p', { html: '<strong>Pay on delivery:</strong> available for many areas (shown at checkout if yours qualifies). Have cash or M-Pesa ready for the rider for the full order total.' }),
+      ...copy.deliveryPaymentHtml.map((html) => el('p', { html })),
 
       el('h2', { text: 'Returns' }),
       el('ul', {}, [
         el('li', { text: 'Return unworn items in original condition, with tags, within 14 days of delivery.' }),
         el('li', { text: 'Fragrance, and hair/wig products once opened, cannot be returned for hygiene reasons unless faulty.' }),
-        el('li', { text: 'Refunds go back to your M-Pesa number once we receive and check the item.' }),
+        el('li', { text: copy.refundLine }),
       ]),
       el('p', {}, [
         document.createTextNode('To start a return, '),
@@ -43,7 +43,7 @@ async function render() {
     clear(wrap);
     wrap.append(
       el('table', { class: 'admin-table', style: 'width:100%' }, [
-        el('thead', {}, [el('tr', {}, [el('th', { scope: 'col', text: 'Area' }), el('th', { scope: 'col', text: 'Method' }), el('th', { scope: 'col', text: 'Fee' }), el('th', { scope: 'col', text: 'Time' }), el('th', { scope: 'col', text: 'Pay on delivery' })])]),
+        el('thead', {}, [el('tr', {}, [el('th', { scope: 'col', text: 'Area' }), el('th', { scope: 'col', text: 'Method' }), el('th', { scope: 'col', text: 'Fee' }), el('th', { scope: 'col', text: 'Time' }), copy.deliveryShowPodColumn ? el('th', { scope: 'col', text: 'Pay on delivery' }) : null])]),
         el('tbody', {}, (data.zones || []).flatMap((z) =>
           (z.methods || []).map((m) =>
             el('tr', {}, [
@@ -51,7 +51,7 @@ async function render() {
               el('td', { text: m.label }),
               el('td', { text: formatMoney(m.fee) }),
               el('td', { text: m.eta }),
-              el('td', { text: m.payOnDeliveryAllowed ? 'Yes' : 'No' }),
+              copy.deliveryShowPodColumn ? el('td', { text: m.payOnDeliveryAllowed ? 'Yes' : 'No' }) : null,
             ])
           )
         )),

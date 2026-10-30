@@ -9,6 +9,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Production launches pay-on-delivery only (no Daraja credentials yet). Remove this
+# line (or set it to true) once online M-Pesa is live; the storefront copy flips back.
+FE_ONLINE_MPESA="false" \
 FE_ENV_LABEL="production" \
 FE_DIST="$ROOT/dist-prod" \
 BACKEND_ORIGIN="${PROD_BACKEND_ORIGIN:-https://esther-botique-prod.fly.dev}" \

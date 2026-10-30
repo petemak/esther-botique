@@ -40,6 +40,26 @@
   (is (= ["mpesa"]
          (checkout/allowed-payment-methods {:methods [{:payOnDeliveryAllowed false}]}))))
 
+(deftest payment-methods-with-online-mpesa-off
+  (testing "MPESA_ONLINE_ENABLED=false: never mpesa, pay_on_delivery only where the zone allows it"
+    (is (= ["pay_on_delivery"]
+           (checkout/allowed-payment-methods {:methods [{:payOnDeliveryAllowed true}]} false)))
+    (is (= []
+           (checkout/allowed-payment-methods {:methods [{:payOnDeliveryAllowed false}]} false))))
+  (testing "explicit true == the default"
+    (is (= ["mpesa" "pay_on_delivery"]
+           (checkout/allowed-payment-methods {:methods [{:payOnDeliveryAllowed true}]} true)))))
+
+(deftest payment-method-policy
+  (let [pod {:payOnDeliveryAllowed true} no-pod {:payOnDeliveryAllowed false}]
+    (is (nil? (checkout/payment-method-problem "mpesa" pod true)))
+    (is (string? (checkout/payment-method-problem "mpesa" pod false)) "online M-Pesa off")
+    (is (nil? (checkout/payment-method-problem "pay_on_delivery" pod false)))
+    (is (nil? (checkout/payment-method-problem "pay_on_delivery" pod true)))
+    (is (string? (checkout/payment-method-problem "pay_on_delivery" no-pod true)) "zone disallows POD")
+    (is (string? (checkout/payment-method-problem "pay_on_delivery" nil false)))
+    (is (string? (checkout/payment-method-problem "bitcoin" pod true)))))
+
 (deftest checkout-stock-problems
   (testing "flags out-of-stock and over-quantity lines"
     (let [probs (checkout/stock-problems

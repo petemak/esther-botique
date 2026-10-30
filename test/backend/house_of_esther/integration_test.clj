@@ -826,3 +826,120 @@
               row (first (:rows (:body pr)))]
           (is (= "error" (:action row)))
           (is (str/includes? (:message row) "whole number")))))))
+
+
+;; --- MPESA_ONLINE_ENABLED switch -----------------------------------------------
+
+(defn- with-mpesa-online
+  "Run f with the runtime flag forced to `on?`, restoring the prior config."
+  [on? f]
+  (let [prior (runtime/config)]
+    (runtime/set-config! (assoc prior :mpesa-online-enabled? on?))
+    (try (f) (finally (runtime/set-config! prior)))))
+
+(defn- guest-with-item
+  "A fresh guest session with one Lulu hoops in the bag. Returns {:jar :csrf}."
+  []
+  (let [jar  (:jar (call {:method :get :uri "/api/auth/me"}))
+        csrf (get jar "he_csrf")
+        r    (call {:method :post :uri "/api/cart/items" :jar jar :headers {"x-csrf-token" csrf}
+                    :body {:variantId "var_lulu_gold" :quantity 1}})]
+    {:jar (:jar r) :csrf csrf}))
+
+(defn- quote! [{:keys [jar csrf]} county]
+  (call {:method :post :uri "/api/checkout/quote" :jar jar :headers {"x-csrf-token" csrf}
+         :body {:county county :town "Town"}}))
+
+(defn- place-order!
+  [{:keys [jar csrf] :as sess} {:keys [county method pay key]}]
+  (let [q (quote! sess county)]
+    (call {:method :post :uri "/api/orders" :jar jar
+           :headers {"x-csrf-token" csrf "idempotency-key" key}
+           :body {:contact {:email "flag.itest@example.com" :phone "+254712345123" :firstName "Flag"}
+                  :deliveryAddress {:recipientName "Flag T." :phone "+254712345123"
+                                    :county county :town "Town"}
+                  :deliveryMethodCode method
+                  :paymentMethod pay
+                  :agreementAcceptance {:accepted true :termsOfSaleVersion 4 :returnsPolicyVersion 2}
+                  :clientTotal (get-in q [:body :cart :total])}})))
+
+(defn- order-count [] (db/one-val ["select count(*) from orders"]))
+
+(deftest mpesa-online-flag-off
+  (when db-url
+    ;; the demo seed leaves the upcountry method POD-disallowed; production data
+    ;; allows it everywhere. Allow it here to mirror production, restore after.
+    (db/exec! ["update delivery_methods set pay_on_delivery_allowed = true where code = 'upcountry_courier'"])
+    (try
+      (with-mpesa-online false
+        (fn []
+          (testing "quote offers only pay_on_delivery — Nairobi and upcountry"
+            (doseq [county ["Nairobi" "Kisii"]]
+              (let [r (quote! (guest-with-item) county)]
+                (is (= 200 (:status r)) (pr-str (:body r)))
+                (is (= ["pay_on_delivery"] (get-in r [:body :allowedPaymentMethods])) county))))
+          (testing "mpesa order -> 422 payment_method_not_allowed, nothing written"
+            (let [before (order-count)
+                  stock  (db/one-val ["select stock from product_variants where id = 'var_lulu_gold'"])
+                  r (place-order! (guest-with-item) {:county "Nairobi" :method "nairobi_next_day"
+                                                     :pay "mpesa" :key "flag-off-mpesa-1"})]
+              (is (= 422 (:status r)) (pr-str (:body r)))
+              (is (= "payment_method_not_allowed" (get-in r [:body :error :code])))
+              (is (string? (get-in r [:body :error :message])))
+              (is (= before (order-count)) "no order row")
+              (is (= stock (db/one-val ["select stock from product_variants where id = 'var_lulu_gold'"]))
+                  "stock untouched")
+              (is (nil? (db/q1 ["select 1 from idempotency_keys where idem_key = 'flag-off-mpesa-1'"]))
+                  "no idempotency record")))
+          (testing "stk-push -> 422 before any Daraja call"
+            (let [{:keys [jar csrf]} (guest-with-item)
+                  r (call {:method :post :uri "/api/payments/mpesa/stk-push" :jar jar
+                           :headers {"x-csrf-token" csrf "idempotency-key" "flag-off-stk-1"}
+                           :body {:paymentId "pay_does_not_matter"}})]
+              (is (= 422 (:status r)) (pr-str (:body r)))
+              (is (= "payment_method_not_allowed" (get-in r [:body :error :code])))))
+          (testing "pay_on_delivery order succeeds (Nairobi and upcountry)"
+            (let [before (order-count)
+                  r1 (place-order! (guest-with-item) {:county "Nairobi" :method "nairobi_next_day"
+                                                      :pay "pay_on_delivery" :key "flag-off-pod-1"})
+                  r2 (place-order! (guest-with-item) {:county "Kisii" :method "upcountry_courier"
+                                                      :pay "pay_on_delivery" :key "flag-off-pod-2"})]
+              (is (= 201 (:status r1)) (pr-str (:body r1)))
+              (is (= "awaiting_delivery" (get-in r1 [:body :payment :state])))
+              (is (= 201 (:status r2)) (pr-str (:body r2)))
+              (is (= (+ before 2) (order-count)))))))
+      (finally
+        (db/exec! ["update delivery_methods set pay_on_delivery_allowed = false where code = 'upcountry_courier'"])))))
+
+(deftest mpesa-online-flag-default-on
+  (when db-url
+    (with-mpesa-online true
+      (fn []
+        (testing "quote unchanged: mpesa + pay_on_delivery where the zone allows it"
+          (is (= ["mpesa" "pay_on_delivery"]
+                 (get-in (quote! (guest-with-item) "Nairobi") [:body :allowedPaymentMethods])))
+          (is (= ["mpesa"]
+                 (get-in (quote! (guest-with-item) "Kisii") [:body :allowedPaymentMethods]))))
+        (testing "mpesa order still created, payment pending"
+          (let [r (place-order! (guest-with-item) {:county "Nairobi" :method "nairobi_next_day"
+                                                   :pay "mpesa" :key "flag-on-mpesa-1"})]
+            (is (= 201 (:status r)) (pr-str (:body r)))
+            (is (= "pending" (get-in r [:body :payment :state])))
+            (testing "stk-push (stub) still works"
+              (let [{:keys [jar csrf]} (guest-with-item)
+                    s (call {:method :post :uri "/api/payments/mpesa/stk-push" :jar jar
+                             :headers {"x-csrf-token" csrf "idempotency-key" "flag-on-stk-1"}
+                             :body {:paymentId (get-in r [:body :payment :id])}})]
+                (is (= 202 (:status s)) (pr-str (:body s)))))))))))
+
+(deftest pod-disallowed-zone-rejected-server-side
+  (when db-url
+    (testing "zone that disallows POD (demo upcountry) rejects a POD order even though the client sent it"
+      (with-mpesa-online true
+        (fn []
+          (let [before (order-count)
+                r (place-order! (guest-with-item) {:county "Kisii" :method "upcountry_courier"
+                                                   :pay "pay_on_delivery" :key "pod-disallowed-1"})]
+            (is (= 422 (:status r)) (pr-str (:body r)))
+            (is (= "payment_method_not_allowed" (get-in r [:body :error :code])))
+            (is (= before (order-count)))))))))

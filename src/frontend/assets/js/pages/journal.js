@@ -34,7 +34,7 @@ function render(data) {
   );
 
   if (!data.items || !data.items.length) {
-    root.append(emptyState({ title: 'Nothing here yet', message: 'The first notes are on their way.', actions: [el('a', { class: 'btn', href: '/new-in.html', text: 'Shop New In' })] }));
+    root.append(emptyState({ title: 'Nothing here yet', message: 'The first notes are on their way — new pieces and stories are coming soon.', actions: [el('a', { class: 'btn', href: '/', text: 'Back to home' })] }));
     return;
   }
 

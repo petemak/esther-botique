@@ -3,6 +3,7 @@
    D16 order reads. Everything is priced and validated server-side."
   (:require [clojure.string :as str]
             [house-of-esther.cart :as cart]
+            [house-of-esther.checkout :as checkout]
             [house-of-esther.db :as db]
             [house-of-esther.delivery :as delivery]
             [house-of-esther.http.error :as err]
@@ -203,6 +204,10 @@
                                     "Our Terms or Returns Policy were updated. Please review the current version and accept again."
                                     [{:field "termsOfSaleVersion" :message (str "current is " (:termsOfSale published))}
                                      {:field "returnsPolicyVersion" :message (str "current is " (:returns published))}])))
+        ;; payment method policy lives on the server (flag + per-method POD rule)
+        _          (when-let [msg (checkout/payment-method-problem
+                                   paymentMethod (:method priced) (runtime/mpesa-online?))]
+                     (throw (err/payment-method-not-allowed msg)))
         placed-iso (u/iso)
         order-no   (gen-order-number conn)
         token      (str "trk_" (u/token))]

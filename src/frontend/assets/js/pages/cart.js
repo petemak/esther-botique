@@ -2,6 +2,7 @@ import { api, ApiError } from '../api.js';
 import { el, clear, imageEl } from '../dom.js';
 import { emptyState, errorState } from '../components.js';
 import { formatMoney } from '../money.js';
+import { copy, cartPaymentStatus } from '../copy.js';
 import { bootStorefront, view, showSpinner } from './_boot.js';
 import { loadCart, getCart, updateCartItem, removeCartItem, applyDiscount, removeDiscount, subscribeCart } from '../cart.js';
 
@@ -190,8 +191,7 @@ function regionPicker() {
     try {
       lastQuote = await api.quote(county.value, town.value.trim() || undefined);
       const methods = (lastQuote.methods || []).map((m) => `${m.label} — ${formatMoney(m.fee)} (${m.eta})`).join('; ');
-      const pod = (lastQuote.allowedPaymentMethods || []).includes('pay_on_delivery');
-      status.textContent = `${methods}. ${pod ? 'Pay on delivery available here.' : 'Prepay with M-Pesa for this area.'}`;
+      status.textContent = `${methods}. ${cartPaymentStatus(lastQuote.allowedPaymentMethods)}`;
       // Targeted update of just the two figures that depend on the quote —
       // no full re-render, so the county/town fields keep focus and value.
       if (summaryRefs.delivery) summaryRefs.delivery.textContent = formatMoney(lastQuote.cart.deliveryFee);
@@ -244,8 +244,7 @@ function discountField(cart) {
 
 function trustMini() {
   return el('div', { class: 'trust-strip', style: 'margin-top:2rem' }, [
-    trust('Secure M-Pesa checkout'),
-    trust('Pay on delivery in many areas'),
+    ...copy.cartTrust.map(trust),
     trust('14-day easy returns'),
     trust('Real support, one business day'),
   ]);

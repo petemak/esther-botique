@@ -37,6 +37,9 @@
 
 (defn stk-push [{:keys [body-params headers]}]
   (let [{:keys [paymentId phone]} (v/validate! StkReq body-params)
+        _   (when-not (runtime/mpesa-online?)
+              (throw (err/payment-method-not-allowed
+                      "Online M-Pesa isn't available right now. Please pay on delivery.")))
         key (idem/require-key! headers)
         bh  (idem/hash-body body-params)]
     (db/with-tx [conn]

@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { el, clear, imageEl, escapeHtml } from '../dom.js';
 import { productCard } from '../components.js';
 import { formatDate, injectJsonLd } from '../util.js';
+import { copy } from '../copy.js';
 import { bootStorefront, view, renderError, armHeaderScrollState } from './_boot.js';
 
 document.body.classList.add('page-home');
@@ -14,13 +15,16 @@ async function init() {
     const content = await api.getHomeContent();
     clear(root);
     const heroEl = hero(content.hero);
+    // Every catalogue-driven section starts hidden and reveals itself only if it has
+    // something to show, so an empty shop never renders bare headings or spinners.
+    const featuredSlug = typeof content.featuredCollectionSlug === 'string' ? content.featuredCollectionSlug.trim() : '';
     root.append(
       heroEl,
       trustStrip(),
       content.categoryTiles && content.categoryTiles.length ? categoryTiles(content.categoryTiles) : categoryTilesFallback(),
       railSection('New In', 'Just arrived, chosen with care.', '/new-in.html', 'new-arrivals'),
       editorialSection(content.editorialBlocks || []),
-      content.featuredCollectionSlug ? featuredSection(content.featuredCollectionSlug) : null,
+      featuredSlug ? featuredSection(featuredSlug) : null,
       journalSection(),
       newsletterSection()
     );
@@ -31,7 +35,7 @@ async function init() {
       slogan: content.hero && content.hero.headline,
       url: window.location.origin + '/',
       areaServed: 'KE',
-      paymentAccepted: ['M-Pesa', 'Cash on delivery'],
+      paymentAccepted: copy.homePaymentAccepted,
     });
     // Header overlays the hero photo; swap to the solid header the instant the TOP of
     // the hero content (a zero-height sentinel before the eyebrow) reaches the header —
@@ -81,7 +85,7 @@ function normalize(href) {
 
 function trustStrip() {
   const items = [
-    ['shield', 'Pay your way', 'M-Pesa or pay on delivery — your choice at checkout.'],
+    ['shield', ...copy.homeTrust],
     ['truck', 'Delivered countrywide', 'Nairobi next-day, courier to every county.'],
     ['camera', 'Real photos, honest sizing', 'What you see is what arrives. Measurements on every piece.'],
     ['chat', 'We actually reply', 'Questions answered within one business day.'],
@@ -101,7 +105,7 @@ function trustStrip() {
 function categoryTiles(tiles) {
   return el('section', { class: 'section wrap', 'aria-labelledby': 'cats-h' }, [
     el('div', { class: 'section-head' }, [el('h2', { id: 'cats-h', text: 'Shop by category' })]),
-    el('div', { class: 'tiles' }, tiles.map((t) =>
+    el('div', { class: `tiles${tiles.length < 4 ? ` tiles--${tiles.length}` : ''}` }, tiles.map((t) =>
       el('a', { class: 'tile', href: normalize(t.href) }, [imageEl(t.image, { altFallback: t.label }), el('span', { text: t.label })])
     )),
   ]);
@@ -121,33 +125,34 @@ function categoryTilesFallback() {
 }
 
 function railSection(title, sub, viewAllHref, collection) {
-  const section = el('section', { class: 'section wrap', 'aria-labelledby': `rail-${collection}` }, [
+  const section = el('section', { class: 'section wrap', 'aria-labelledby': `rail-${collection}`, hidden: true }, [
     el('div', { class: 'section-head' }, [
       el('div', {}, [el('h2', { id: `rail-${collection}`, text: title }), el('p', { class: 'text-muted', text: sub })]),
       el('a', { href: viewAllHref, text: 'View all' }),
     ]),
-    el('div', { class: 'rail', 'data-rail': collection }, [el('div', { class: 'spinner' })]),
+    el('div', { class: 'rail', 'data-rail': collection }),
   ]);
-  loadRail(section.querySelector('[data-rail]'), collection);
+  loadRail(section, section.querySelector('[data-rail]'), collection);
   return section;
 }
 
-async function loadRail(container, collection) {
+/** Reveal the section only when there are products; an empty or failed rail removes it. */
+async function loadRail(section, container, collection) {
   try {
     const data = await api.getProducts({ collection, sort: 'newest', pageSize: 8 });
-    clear(container);
-    (data.items || []).slice(0, 8).forEach((p) => container.appendChild(productCard(p)));
-    if (!data.items || !data.items.length) container.appendChild(el('p', { class: 'text-muted', text: 'Nothing here just yet — check back soon.' }));
+    const items = (data && data.items) || [];
+    if (!items.length) { section.remove(); return; }
+    items.slice(0, 8).forEach((p) => container.appendChild(productCard(p)));
+    section.hidden = false;
   } catch {
-    clear(container);
-    container.appendChild(el('p', { class: 'text-muted', text: 'Could not load this rail right now.' }));
+    section.remove();
   }
 }
 
 function featuredSection(slug) {
-  const section = el('section', { class: 'section wrap', 'aria-labelledby': 'featured-h' }, [
+  const section = el('section', { class: 'section wrap', 'aria-labelledby': 'featured-h', hidden: true }, [
     el('div', { class: 'section-head' }, [el('h2', { id: 'featured-h', text: 'Featured', 'data-featured-title': '' })]),
-    el('div', { class: 'rail', 'data-featured-rail': '' }, [el('div', { class: 'spinner' })]),
+    el('div', { class: 'rail', 'data-featured-rail': '' }),
   ]);
   (async () => {
     try {
@@ -155,13 +160,15 @@ function featuredSection(slug) {
         api.getCollection(slug).catch(() => null),
         api.getProducts({ collection: slug, pageSize: 8 }),
       ]);
+      const items = (products && products.items) || [];
+      if (!items.length) { section.remove(); return; }
       if (meta && meta.title) section.querySelector('[data-featured-title]').textContent = meta.title;
       const rail = section.querySelector('[data-featured-rail]');
-      clear(rail);
-      (products.items || []).forEach((p) => rail.appendChild(productCard(p)));
+      items.forEach((p) => rail.appendChild(productCard(p)));
       const head = section.querySelector('.section-head');
       head.appendChild(el('a', { href: `/sale.html`, hidden: true }));
       head.appendChild(el('a', { href: `/new-in.html?collection=${encodeURIComponent(slug)}`, text: 'View all' }));
+      section.hidden = false;
     } catch {
       section.remove();
     }
@@ -170,20 +177,21 @@ function featuredSection(slug) {
 }
 
 function journalSection() {
-  const section = el('section', { class: 'section wrap', 'aria-labelledby': 'journal-h' }, [
+  const section = el('section', { class: 'section wrap', 'aria-labelledby': 'journal-h', hidden: true }, [
     el('div', { class: 'section-head' }, [
       el('h2', { id: 'journal-h', text: 'From the Journal' }),
       el('a', { href: '/journal.html', text: 'All notes' }),
     ]),
-    el('div', { class: 'product-grid', 'data-journal': '' }, [el('div', { class: 'spinner' })]),
+    el('div', { class: 'product-grid', 'data-journal': '' }),
   ]);
   (async () => {
     try {
       const data = await api.getJournal({ page: 1, pageSize: 3 });
+      const items = (data && data.items) || [];
+      if (!items.length) { section.remove(); return; }
       const grid = section.querySelector('[data-journal]');
-      clear(grid);
-      (data.items || []).slice(0, 3).forEach((a) => grid.appendChild(journalCard(a)));
-      if (!data.items || !data.items.length) section.remove();
+      items.slice(0, 3).forEach((a) => grid.appendChild(journalCard(a)));
+      section.hidden = false;
     } catch {
       section.remove();
     }
@@ -204,7 +212,7 @@ export function journalCard(a) {
 }
 
 function editorialSection(blocks) {
-  if (!blocks.length) return el('div');
+  if (!blocks.length) return null;
   return el('section', { class: 'section wrap', 'aria-label': 'Editorial' },
     blocks.map((b) =>
       el('article', { class: 'editorial', style: 'margin-bottom:2rem' }, [

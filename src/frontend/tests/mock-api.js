@@ -205,6 +205,12 @@ export async function installMockApi(page, opts = {}) {
     : null;
   state.contacts = CONTACTS.map((c) => ({ ...c }));
   state.user = opts.user || null;
+  // Launch-day variants (see click-test.spec.js "production launch"):
+  //   podOnly        - every quote allows only pay_on_delivery (backend MPESA_ONLINE_ENABLED=false)
+  //   noPayment      - every quote returns allowedPaymentMethods: []
+  //   emptyCatalogue - zero products / collections / journal posts + the minimal home content
+  state.opts = { podOnly: !!opts.podOnly, noPayment: !!opts.noPayment, emptyCatalogue: !!opts.emptyCatalogue };
+  state.requests = [];
   // A3 bulk-status: admin list statuses live here so bulk actions + refresh round-trip.
   state.adminProductStatus = { prod_1042: 'published', prod_2001: 'draft' };
 
@@ -217,8 +223,30 @@ export async function installMockApi(page, opts = {}) {
     const body = req.postData() ? safeJson(req.postData()) : {};
     const json = (status, data) => route.fulfill({ status, contentType: 'application/json', headers: { 'Cache-Control': 'no-store' }, body: JSON.stringify(data) });
     const err = (status, code, message) => json(status, { error: { code, message } });
+    state.requests.push({ method, path, query: url.search, body });
 
     // ---- content / catalog ----
+    if (path === '/content/home' && state.opts.emptyCatalogue) {
+      // Minimal launch content: 2 tiles, no editorial, no featured collection, no socials.
+      return json(200, {
+        announcement: { enabled: true, text: 'Delivered countrywide. Pay on delivery.', href: '/delivery-returns.html' },
+        hero: { headline: 'Style worth the wait', subcopy: 'Curated pieces, honest sizing, delivered to your door.', ctaLabel: 'Shop new in', ctaHref: '/new-in.html', image: IMG('img_hero1', 'Editorial hero') },
+        categoryTiles: [{ label: 'Women', href: '/women.html', image: IMG('img_cat_women', 'Womenswear') }, { label: 'Accessories', href: '/accessories.html', image: IMG('img_cat_accessories', 'Accessories') }],
+        editorialBlocks: [],
+        featuredCollectionSlug: null,
+        socialLinks: [],
+      });
+    }
+    if (path === '/products' && method === 'GET' && state.opts.emptyCatalogue) {
+      const cat = url.searchParams.get('category');
+      return json(200, {
+        items: [], page: 1, pageSize: 24, total: 0, totalPages: 0, appliedFilters: {},
+        facets: { categories: [], subcategories: [], colors: [], sizes: [], priceRange: null },
+        query: { term: url.searchParams.get('q') || null, didYouMean: null },
+        heading: { title: cat ? cap(cat) : 'New In', description: '' },
+      });
+    }
+    if (path.match(/^\/collections\/[^/]+$/) && state.opts.emptyCatalogue) return err(404, 'not_found', 'No such collection.');
     if (path === '/content/home') {
       return json(200, {
         announcement: { enabled: true, text: 'Delivered countrywide. Pay with M-Pesa or on delivery.', href: '/delivery-returns.html' },
@@ -348,7 +376,11 @@ export async function installMockApi(page, opts = {}) {
       return json(200, {
         zone: zone.code,
         methods: zone.methods.map((m) => ({ code: m.code, label: m.label, fee: m.fee, eta: m.eta })),
-        allowedPaymentMethods: zone.methods[0].payOnDeliveryAllowed ? ['mpesa', 'pay_on_delivery'] : ['mpesa'],
+        allowedPaymentMethods: state.opts.noPayment
+          ? []
+          : state.opts.podOnly
+            ? ['pay_on_delivery']
+            : zone.methods[0].payOnDeliveryAllowed ? ['mpesa', 'pay_on_delivery'] : ['mpesa'],
         cart: { subtotal: KES(sub), discountTotal: KES(disc), deliveryFee: fee, total: KES(sub + disc + fee.amount) },
       });
     }
@@ -465,6 +497,7 @@ export async function installMockApi(page, opts = {}) {
     if (path === '/subscriptions/confirm') return json(200, { status: 'confirmed' });
     if (path === '/subscriptions/unsubscribe') return json(200, { status: 'unsubscribed' });
     if (path === '/contact' && method === 'POST') return json(201, { reference: 'MSG-2026-0442', message: 'Got it. We reply within one business day.' });
+    if (path === '/journal' && method === 'GET' && state.opts.emptyCatalogue) return json(200, { items: [], page: 1, pageSize: 12, total: 0, totalPages: 0 });
     if (path === '/journal' && method === 'GET') return json(200, { items: [{ slug: 'september-edit', title: 'The September Edit', excerpt: 'Dressing for the in-between season.', tag: 'lookbook', coverImage: IMG('img_j_sept', 'September edit'), publishedAt: '2026-09-01T08:00:00Z' }], page: 1, pageSize: 12, total: 1, totalPages: 1 });
     if (path.match(/^\/journal\/[^/]+$/)) return json(200, { slug: path.split('/')[2], title: 'The September Edit', tag: 'lookbook', heroImage: IMG('img_j_sept', 'September edit'), publishedAt: '2026-09-01T08:00:00Z', bodyHtml: '<p>A note on the season.</p>', shopTheLook: PRODUCTS.map(card), related: [], seo: { title: 'The September Edit — The Journal — House of Esther', description: 'A note.' } });
 

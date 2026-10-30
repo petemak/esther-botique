@@ -924,3 +924,12 @@ dialog.lightbox::backdrop {
   animation: spin 0.8s linear infinite;
   margin: var(--space-l) auto;
 }
+
+/* Checkout: pay-on-delivery as the only option is a statement, not a one-item radio group. */
+.payment-single {
+  padding: var(--space-s);
+  border: 1px solid var(--hairline);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}

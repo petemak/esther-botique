@@ -121,6 +121,33 @@ function renderResults(data, params) {
     ])
   );
 
+  // A shop with nothing in this listing at all (no filters or search to blame): show a
+  // friendly "on their way" state instead of an empty filter panel and a "0 pieces" toolbar.
+  if ((!data.items || !data.items.length) && !hasNarrowing(params)) {
+    root.append(
+      emptyState({
+        title: 'Nothing here yet',
+        message: 'New pieces are on their way. Leave your email in the footer and we will tell you the moment they land.',
+        actions: [
+          el('a', { class: 'btn', href: '/', text: 'Back to home' }),
+          el('button', {
+            class: 'btn btn--secondary',
+            type: 'button',
+            text: 'Get notified',
+            on: {
+              click: () => {
+                const input = $('#footer-newsletter-email');
+                if (input) { input.scrollIntoView({ block: 'center' }); input.focus(); }
+              },
+            },
+          }),
+        ],
+      })
+    );
+    injectJsonLd({ '@context': 'https://schema.org', '@type': 'ItemList', name: title, numberOfItems: 0, itemListElement: [] });
+    return;
+  }
+
   const layout = el('div', { class: 'listing-layout' });
   const filterCol = el('div', {}, [buildFilterPanel(data.facets || {}, params)]);
   const resultsCol = el('div', {});
@@ -205,6 +232,16 @@ function renderResults(data, params) {
       name: p.name,
     })),
   });
+}
+
+/** True when the shopper has narrowed the listing (search term or any filter). */
+function hasNarrowing(params) {
+  return !!(
+    params.q || params.subcategory || params.minPrice || params.maxPrice || params.inStock ||
+    (mode !== 'sale' && params.onSale) ||
+    (params.color || []).length || (params.size || []).length ||
+    (mode !== 'new-in' && params.collection)
+  );
 }
 
 function sortControl(params) {

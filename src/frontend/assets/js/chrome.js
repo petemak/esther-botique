@@ -10,6 +10,7 @@ import { toast } from './toast.js';
 import { currentUser } from './auth.js';
 import { subscribeCart, cartCount, loadCart, mountCartDrawer, openCartDrawer } from './cart.js';
 import { brandLink, logoLockup } from './logo.js';
+import { copy } from './copy.js';
 
 const NAV = [
   { href: '/new-in.html', label: 'New In' },
@@ -390,8 +391,8 @@ function buildFooter() {
       ]),
       el('div', { class: 'footer-bottom' }, [
         el('span', { text: `© ${new Date().getFullYear()} ${CONFIG.brand}. Curated in Nairobi, delivered across Kenya.` }),
-        el('span', { html: `Pay with <strong>M-Pesa</strong> or on delivery.` }),
-        el('ul', { class: 'social-links', id: 'footer-social' }),
+        el('span', { html: copy.footerPaymentHtml }),
+        el('ul', { class: 'social-links', id: 'footer-social', hidden: true }),
       ]),
     ])
   );
@@ -450,6 +451,7 @@ async function loadSocial() {
     const ul = $('#footer-social');
     if (!ul || !links.length) return;
     clear(ul);
+    ul.hidden = false;
     links.forEach((l) => {
       ul.appendChild(
         el('li', {}, [

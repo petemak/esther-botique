@@ -4,6 +4,8 @@
  * talks only to our backend, never a third party). Deploy can override by setting
  * window.__HOE_CONFIG__ before this module loads.
  */
+import { ENV } from './env.js';
+
 const overrides = (typeof window !== 'undefined' && window.__HOE_CONFIG__) || {};
 
 export const CONFIG = {
@@ -11,6 +13,8 @@ export const CONFIG = {
   brand: 'House of Esther',
   whatsappNumber: overrides.whatsappNumber || '+254700000000',
   supportEmail: overrides.supportEmail || 'hello@houseofesther.co.ke',
+  // false = pay on delivery only: no STK prompt, no "pay now" anywhere (see copy.js).
+  onlineMpesa: ENV.onlineMpesa !== false,
   paymentPollIntervalMs: 3000,
   paymentPollTimeoutMs: 90000,
 };

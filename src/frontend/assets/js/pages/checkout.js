@@ -9,6 +9,7 @@ import { loadCart } from '../cart.js';
 import { CONFIG } from '../config.js';
 import { currentUser } from '../auth.js';
 import { toast } from '../toast.js';
+import { copy, effectivePaymentMethods, POD_TITLE, POD_DETAIL } from '../copy.js';
 
 bootStorefront({ active: '' });
 setPageMeta({ noindex: true });
@@ -21,7 +22,8 @@ const state = {
   addresses: [],
   legal: { terms: null, returns: null },
   method: null,
-  payment: 'mpesa',
+  // With online M-Pesa off the only way to pay is on delivery, so it is preselected.
+  payment: CONFIG.onlineMpesa ? 'mpesa' : 'pay_on_delivery',
   idempotencyKey: null,
   submitting: false,
 };
@@ -73,6 +75,8 @@ function renderCheckout() {
   root.append(layout);
 
   refreshMethodSection();
+  // Pay-on-delivery-only builds can say how payment works before the address is known.
+  if (!CONFIG.onlineMpesa) refreshPaymentSection();
   updatePlaceOrderState();
 }
 
@@ -93,7 +97,7 @@ function contactSection() {
       value: u ? u.phone || '' : '',
       required: true,
       autocomplete: 'tel',
-      hint: 'We need it for M-Pesa and to reach you about delivery.',
+      hint: copy.checkoutPhoneHint,
       placeholder: '+2547XXXXXXXX',
     }),
     !u
@@ -186,9 +190,11 @@ async function requestQuote() {
     state.quote = await api.quote(county, town || undefined);
     if (state.method && !(state.quote.methods || []).some((m) => m.code === state.method)) state.method = null;
     if (!state.method && state.quote.methods && state.quote.methods.length) state.method = state.quote.methods[0].code;
-    if (!(state.quote.allowedPaymentMethods || []).includes(state.payment)) {
-      state.payment = (state.quote.allowedPaymentMethods || ['mpesa'])[0];
-    }
+    // Only methods the quote allows (and this build supports) are selectable. With a
+    // single option it is preselected; with none, payment stays null and the Payment
+    // section shows a blocking message (place order stays disabled).
+    const usable = effectivePaymentMethods(state.quote.allowedPaymentMethods);
+    if (!usable.includes(state.payment)) state.payment = usable.length ? usable[0] : null;
     status.textContent = '';
     refreshMethodSection();
     refreshPaymentSection();
@@ -236,9 +242,18 @@ function refreshMethodSection() {
 
 /* ---------- Payment ---------- */
 function paymentSection() {
-  return el('section', { class: 'checkout-section', 'aria-labelledby': 'pm-h', id: 'payment-section' }, [
+  const section = el('section', { class: 'checkout-section', 'aria-labelledby': 'pm-h', id: 'payment-section' }, [
     el('h2', { id: 'pm-h', text: 'Payment' }),
     el('div', { id: 'payment-options' }),
+  ]);
+  return section;
+}
+
+/** The single, clear statement shown when pay on delivery is the only way to pay. */
+function podOnlyStatement() {
+  return el('p', { class: 'payment-single', id: 'pay-single' }, [
+    el('strong', { text: POD_TITLE }),
+    document.createTextNode(` — ${POD_DETAIL}`),
   ]);
 }
 
@@ -246,7 +261,28 @@ function refreshPaymentSection() {
   const wrap = $('#payment-options');
   if (!wrap) return;
   clear(wrap);
-  const allowed = (state.quote && state.quote.allowedPaymentMethods) || ['mpesa', 'pay_on_delivery'];
+  const allowed = effectivePaymentMethods(state.quote && state.quote.allowedPaymentMethods);
+
+  if (!allowed.length) {
+    wrap.append(
+      el('div', { class: 'alert alert--error', role: 'alert', id: 'pay-none' }, [
+        el('p', { text: 'We cannot take an order for this address right now, because no payment option is available for it.' }),
+        el('p', {}, [
+          document.createTextNode('Please try another town or county, or '),
+          el('a', { href: '/contact.html', text: 'contact us' }),
+          document.createTextNode(' and we will sort it out with you.'),
+        ]),
+      ])
+    );
+    return;
+  }
+
+  if (allowed.length === 1 && allowed[0] === 'pay_on_delivery') {
+    state.payment = 'pay_on_delivery';
+    wrap.append(podOnlyStatement());
+    return;
+  }
+
   const opt = (value, title, desc) => {
     const id = `pay-${value}`;
     return el('label', { class: 'radio', for: id, style: 'padding:.5rem 0' }, [
@@ -257,9 +293,11 @@ function refreshPaymentSection() {
       el('span', {}, [el('strong', { text: title }), el('br'), el('span', { class: 'text-muted', text: desc })]),
     ]);
   };
-  wrap.append(opt('mpesa', 'M-Pesa (pay now)', 'We send an STK prompt to your phone. Enter your PIN to pay.'));
+  if (allowed.includes('mpesa')) {
+    wrap.append(opt('mpesa', 'M-Pesa (pay now)', 'We send an STK prompt to your phone. Enter your PIN to pay.'));
+  }
   if (allowed.includes('pay_on_delivery')) {
-    wrap.append(opt('pay_on_delivery', 'Pay on delivery', 'Cash or M-Pesa to the rider when your order arrives.'));
+    wrap.append(opt('pay_on_delivery', POD_TITLE, 'Cash or M-Pesa to the rider when your order arrives.'));
   } else {
     wrap.append(el('p', { class: 'hint', text: 'Pay on delivery is not available for this area — prepay with M-Pesa.' }));
   }
@@ -296,7 +334,7 @@ function reviewSection() {
     ]),
     el('div', { id: 'checkout-alert', role: 'alert' }),
     el('button', { class: 'btn btn--block', id: 'place-order', type: 'submit', text: 'Place order', disabled: true }),
-    el('p', { class: 'hint', text: 'By placing your order you agree to be charged the total shown. A retry will not double-charge you.' }),
+    el('p', { class: 'hint', text: copy.checkoutPlaceHint }),
   ]);
 }
 
@@ -466,7 +504,7 @@ async function onSubmit(e) {
   try {
     const res = await api.createOrder(buildOrderBody(), state.idempotencyKey);
     sessionStorage.setItem(`hoe:tt:${res.order.orderNumber}`, res.trackingToken || '');
-    if (res.payment && res.payment.method === 'mpesa') {
+    if (CONFIG.onlineMpesa && res.payment && res.payment.method === 'mpesa') {
       await runMpesaFlow(res.order, res.payment);
     } else {
       goToConfirmation(res.order.orderNumber);

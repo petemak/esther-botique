@@ -40,6 +40,11 @@
   ([] (rate-limited "You're going a little fast. Try again shortly."))
   ([m] (ex 429 "rate_limited" m)))
 
+(defn payment-method-not-allowed
+  "422 for a payment method this deployment / delivery zone does not accept."
+  [m]
+  (ex 422 "payment_method_not_allowed" m [{:field "paymentMethod" :message "not allowed"}]))
+
 (defn payment-failed [m] (ex 402 "payment_failed" m))
 
 (defn service-unavailable [m] (ex 503 "service_unavailable" m))

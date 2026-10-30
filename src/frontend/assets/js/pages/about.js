@@ -3,6 +3,7 @@ import { el, clear } from '../dom.js';
 import { injectJsonLd } from '../util.js';
 import { bootStorefront, view } from './_boot.js';
 import { CONFIG } from '../config.js';
+import { copy } from '../copy.js';
 
 bootStorefront({ active: '' });
 render();
@@ -28,7 +29,7 @@ async function render() {
       ]),
 
       el('h2', { text: 'Our delivery & support promise' }),
-      el('p', { text: 'Nairobi next-day where we can, courier to every county, and a tracking link the moment your order is dispatched. Pay with M-Pesa or on delivery. If you message us, a person replies — within one business day.' }),
+      el('p', { text: copy.aboutDelivery }),
 
       el('h2', { id: 'boutique', text: 'The boutique' }),
       el('p', { text: 'A flagship House of Esther store is planned within the year. Address and opening hours will appear here once the doors are set.' }),
